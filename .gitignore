@@ -1,0 +1,27 @@
+# Everything chatq writes at runtime: the chat index, the queue (your prompts),
+# run logs, the Join key. chat-index.csv holds absolute paths and every chat
+# title on the box, and queue/ holds prompt text - private by nature, never to
+# be published.
+data/
+# the test harness builds its fake homes here and deletes them afterwards
+tests/.sandbox/
+# what extension/build.js copies in before vsce packs the extension, and the
+# package itself
+extension/payload/
+extension/CHANGELOG.md
+extension/LICENSE
+*.vsix
+# personal Claude Code settings for this checkout (e.g. the auto-compact window)
+.claude/settings.local.json
+# secrets (API keys, tokens) - never to be published; a placeholder template stays
+.env
+.env.*
+!.env.example
+# design reference material (a character pack's art, clips, audio) -
+# third-party IP, kept local, never published
+design/
+# local Python virtual environments - machine-specific and rebuildable
+.venv/
+venv/
+# Python's bytecode cache (skins/tools/make_default.py leaves one)
+__pycache__/

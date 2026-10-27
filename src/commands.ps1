@@ -1,0 +1,1723 @@
+# Chat Session Agent Mk.5, src/commands.ps1: dot-sourced by Chat-Session-Agent-Mk5.ps1
+# in its turn, never on its own - see the list there.
+
+#region commands --------------------------------------------------------------
+
+function New-ChatqSeq {
+    # One past the highest number taken. A number is taken by a job's .json,
+    # and by a prompt file in data/queue named for it: a job has that file
+    # before its .json - for as long as a chatq editor tab stays open, or its
+    # files take to copy - and a number counted from the .json alone went to
+    # two jobs, which then shared the one prompt file. Read afresh each time,
+    # never from a list read earlier: another process may have queued since.
+    $max = 0
+    foreach ($j in @(Get-ChatqJobs)) { if ([int]$j.seq -gt $max) { $max = [int]$j.seq } }
+    foreach ($f in @(Get-ChildItem -LiteralPath $script:ChatqQueueDir -Filter '#*' -File -EA SilentlyContinue)) {
+        if ($f.Name -match '^#(\d{1,9}) ' -and [int]$Matches[1] -gt $max) { $max = [int]$Matches[1] }
+    }
+    return $max + 1
+}
+
+function ConvertFrom-ChatqWhen {
+    # -At 13:00 (today, or tomorrow once that has passed) / -In 90m, 2h, 1d
+    param([string]$At, [string]$In)
+    if ($In) {
+        if ($In -match '^\s*(\d+(?:\.\d+)?)\s*(m|min|h|hr|d)?\s*$') {
+            $n = [double]$Matches[1]
+            switch -Wildcard ($Matches[2]) {
+                'd' { return (Get-Date).AddDays($n) }
+                'h*' { return (Get-Date).AddHours($n) }
+                default { return (Get-Date).AddMinutes($n) }
+            }
+        }
+        throw "-In '$In': use 90m, 2h or 1d"
+    }
+    if ($At) {
+        $d = [datetime]::MinValue
+        if (-not [datetime]::TryParse($At, [ref]$d)) { throw "-At '$At': use a time like 13:00" }
+        if ($At -notmatch '\d{4}|/' -and $d -lt (Get-Date)) { $d = $d.AddDays(1) }
+        return $d
+    }
+    return $null
+}
+
+function Invoke-ChatqEditor {
+    # code --wait first: in VS Code's terminal it opens a tab in this window and
+    # returns when the tab is closed. $CHATQ_EDITOR overrides the choice.
+    param([string]$Path, [switch]$NoWait)
+    $spec = if ($env:CHATQ_EDITOR) { $env:CHATQ_EDITOR }
+    elseif (Get-Command code -EA SilentlyContinue) { 'code --wait' }
+    elseif ($env:VISUAL) { $env:VISUAL }
+    elseif ($env:EDITOR) { $env:EDITOR }
+    elseif ($script:ChatqIsWindows) { 'notepad' }
+    else { 'nano' }
+    $parts = @($spec -split '\s+' | Where-Object { $_ })
+    $exe = $parts[0]
+    $rest = @($parts | Select-Object -Skip 1)
+    if ($NoWait) { $rest = @($rest | Where-Object { $_ -notin '--wait', '-w' }) }
+    if ($exe -match '^notepad(\.exe)?$') {
+        $p = Start-Process -FilePath 'notepad.exe' -ArgumentList "`"$Path`"" -PassThru
+        if (-not $NoWait) { $p.WaitForExit() }
+        return
+    }
+    & $exe @rest $Path
+}
+
+function Get-ChatqJobInfo {
+    # what the run needs to know about the chat: where it ran, in which mode.
+    # A Codex chat's sandbox only as a word codex takes: one it does not -
+    # 'managed' - is workspace-write, and SandboxUnknown keeps the word for
+    # Write-ChatqJobInfo to say (ConvertTo-ChatqCodexSandbox)
+    param($Row)
+    if ($Row.Provider -eq 'codex') {
+        $m = Get-ChatqCodexMeta $Row.Path
+        $c = ConvertTo-ChatqCodexSandbox ([string]$m.Sandbox)
+        $sb = $c.Sandbox
+        return @{
+            Cwd = $m.Cwd; Mode = $sb; Sandbox = $sb; SandboxUnknown = $c.Unknown; Network = $m.Network; Model = $m.Model; Effort = $m.Effort; CutOff = $false
+            Error = if (-not $m.Cwd) { "can't tell which folder this Codex chat ran in" } else { $null }
+        }
+    }
+    $m = Get-ChatqClaudeMeta $Row.Path $Row.Group
+    return @{
+        Cwd = $m.Cwd; Mode = if ($m.Mode) { $m.Mode } else { 'default' }; Model = $m.Model
+        CutOff = [bool]($m.LastTurn -and ($m.LastTurn.Limit -or $m.LastTurn.Overloaded)); Sandbox = $null; Network = $false
+        Error = if (-not $m.Exists) { 'that chat''s transcript is gone' }
+        elseif (-not $m.Cwd) { "can't tell which folder this chat ran in - its recorded folder no longer exists" }
+        else { $null }
+    }
+}
+
+function Get-ChatqCodexStickSay {
+    # The words for a Codex job given a sandbox other than its chat's, or
+    # $null: exec resume writes the run's sandbox into the turn_context it
+    # adds (spike S11), whatever its rank, and that is what the next job
+    # reads as the chat's own (Get-ChatqCodexMeta) - so the pick stays, for
+    # every job after it that picks none: a wider one leaves the chat wider,
+    # a narrower one - read-only, or the phone's cap - leaves it unable to
+    # do what it did. A chat whose own is not known yet (rank -1: a console
+    # target whose row did not load) says nothing rather than guess. Pure.
+    param([string]$Chat, [string]$Run)
+    $r = Get-ChatqCodexSandboxRank $Run
+    $c = Get-ChatqCodexSandboxRank $Chat
+    if ($r -lt 0 -or $c -lt 0 -or $r -eq $c) { return $null }
+    return "a sandbox picked sticks: the chat keeps $Run after this run, not its $Chat, so later jobs for it run in $Run too unless given -Sandbox"
+}
+
+function Write-ChatqJobInfo {
+    # -New: a chat not made yet, which has no last run to go by. -Mode: the
+    # one given - for a Codex chat the sandbox -Sandbox gave.
+    param($Info, [string]$Mode, [switch]$Continue, [string]$Provider, [switch]$New)
+    $m = if ($Mode) { $Mode } else { $Info.Mode }
+    $src = if ($Mode) { 'given' } elseif ($New) { 'as a new chat starts' } else { 'as the chat last ran' }
+    Write-Host "     $m ($src) $($script:ChatqDot) $($Info.Cwd)" -ForegroundColor DarkGray
+    if ($Provider -eq 'claude') {
+        switch ($m) {
+            'plan' { Write-Host '     plan mode: it will stop at a plan - -Mode auto lets it act' -ForegroundColor Yellow }
+            'bypassPermissions' { Write-Host '     bypassPermissions: it runs everything without asking' -ForegroundColor Yellow }
+            { $_ -in 'default', 'manual' } {
+                Write-Host '     anything that would ask is denied unattended - -Mode auto or acceptEdits lets it edit' -ForegroundColor DarkGray
+            }
+        }
+    }
+    if ($Provider -eq 'codex') {
+        # A Codex chat's mode is its sandbox. The model and effort it last
+        # ran on beside it: shown, not sent - a resume runs on the thread's
+        # own (Get-ChatqCodexMeta).
+        $on = (@($Info.Model, $(if ($Info.Effort) { "at effort $($Info.Effort)" })) | Where-Object { $_ }) -join ' '
+        if ($on) { Write-Host "     $on (as the chat last ran)" -ForegroundColor DarkGray }
+        if ($Info.SandboxUnknown -and -not $Mode) {
+            Write-Host "     its sandbox reads '$($Info.SandboxUnknown)', which codex does not take - it runs in workspace-write; -Sandbox picks another" -ForegroundColor Yellow
+        }
+        switch ($m) {
+            'read-only' { Write-Host '     read-only: it can read, not edit - -Sandbox workspace-write lets it edit' -ForegroundColor DarkGray }
+            'danger-full-access' { Write-Host '     danger-full-access: it runs everything with no sandbox, and nobody is there to stop it' -ForegroundColor Yellow }
+        }
+        $stick = Get-ChatqCodexStickSay ([string]$Info.Sandbox) $Mode
+        if ($stick) { Write-Host "     $stick" -ForegroundColor Yellow }
+    }
+    if ($Continue -and -not $Info.CutOff) {
+        Write-Host '     this chat was not cut off by the limit or a 529 - "continue" is sent anyway' -ForegroundColor Yellow
+    }
+    if ($env:ANTHROPIC_API_KEY -and $Provider -eq 'claude') {
+        Write-Host '     ANTHROPIC_API_KEY is set here - chatq leaves it out, so runs use your subscription' -ForegroundColor DarkGray
+    }
+}
+
+#region the job core ------------------------------------------------------------
+# What chatq, chatqrm, chatqrun and chatqlog do to jobs, apart from what they
+# print: the overlay's console does the same things from a window, where
+# there is no console to print to and no editor to wait on. Nothing here
+# writes to the host or starts the watcher.
+
+function New-ChatqJobSlot {
+    # A new job's number, id and file names, and its prompt file, written
+    # now with the header alone: that file holds the number (New-ChatqSeq)
+    # until the job's .json does. Its folder is made now too, and holds the
+    # id the same way; Register-ChatqJob removes it again if no file went
+    # in. Both are taken holding data/job-numbers.lock, so a shell, the
+    # overlay and the watcher never take one number, or one id, between
+    # them; a lock not had within 3 s takes them without it, rather than
+    # make no job. A caller that gives the job up removes the prompt file
+    # and the folder, and the number is free again.
+    # An id is the time to the second and the chat's first four hex digits;
+    # one already taken - two jobs for one chat inside a second, which the
+    # console can make - gets -2, -3.
+    param($Row, [string]$Title)
+    New-ChatqDir $script:ChatqQueueDir
+    $take = {
+        $seq = New-ChatqSeq
+        $name = if ($Title) { $Title } else { [string]$Row.Title }
+        $hex = if ($Row.Id) { ([string]$Row.Id).Substring(0, [Math]::Min(4, ([string]$Row.Id).Length)) } else { [guid]::NewGuid().ToString('N').Substring(0, 4) }
+        $base = '{0}-{1}' -f (Get-Date).ToString('yyyyMMdd-HHmmss'), $hex
+        $id = $base
+        for ($n = 2; (Test-Path -LiteralPath (Join-Path $script:ChatqQueueDir "$id.json")) -or (Test-Path -LiteralPath (Join-Path $script:ChatqQueueDir $id)); $n++) { $id = "$base-$n" }
+        # no run of dashes survives into the comment, so no title can close it early
+        $safe = $name -replace '-{2,}', '-'
+        $file = "#$seq $(Get-ChatqSafeName $name).md"
+        $slot = [pscustomobject]@{
+            Seq = $seq; Id = $id; File = $file; Path = (Join-Path $script:ChatqQueueDir $file); Dir = (Join-Path $script:ChatqQueueDir $id)
+            Header = "<!-- chatq: prompt for '$safe' ($($Row.Provider)). Everything after this comment is sent as it is when the limit resets. Save and close the tab to queue it; leave it empty to cancel. -->`n`n"
+        }
+        New-ChatqDir $slot.Dir
+        Save-ChatqText $slot.Path $slot.Header
+        $slot
+    }
+    try { return (Invoke-ChatqLocked $script:ChatqSeqLockPath $take) }
+    catch { if ($_.Exception.Message -notlike '* is held by another process') { throw } }
+    return (& $take)
+}
+
+function New-ChatqJobRecord {
+    # The job as data/queue/<id>.json holds it. Pure: nothing is written.
+    # -Resolve: how Resolve-ChatqTarget picked the chat, when it did.
+    # -JobHome: the config dir the chat lives under, when the caller knows it
+    # better than this process's environment does - $null for the default
+    # one. Left out, the environment's is taken.
+    param($Slot, $Row, $Info, [string]$Kind = 'prompt', [string]$Mode, [string]$Model, $NotBefore,
+        [switch]$First, [switch]$SendNow, [string]$Typed, $Resolve, [string]$Rule, [string]$Title, $JobHome)
+    $jobHomeGiven = $PSBoundParameters.ContainsKey('JobHome')
+    [pscustomobject][ordered]@{
+        v = 1
+        # set before the prompt, when the files went in - the chat a re-pick
+        # lands on does not rename the folder they are in
+        id = $Slot.Id
+        seq = $Slot.Seq
+        provider = $Row.Provider
+        sessionId = $(if ($Row.Id) { $Row.Id } else { $null })
+        title = $(if ($Title) { $Title } else { $Row.Title })
+        group = $Row.Group
+        path = $(if ($Row.Path) { $Row.Path } else { $null })
+        cwd = $Info.Cwd
+        # only when the user set one: pointing CLAUDE_CONFIG_DIR at the default
+        # makes Claude look for .claude.json inside it, where it never lives
+        home = if ($jobHomeGiven) { if ($JobHome) { [string]$JobHome } else { $null } }
+        elseif ($Row.Provider -eq 'codex') { $env:CODEX_HOME } else { $env:CLAUDE_CONFIG_DIR }
+        chatWhen = $Row.When
+        typed = $(if ($Typed) { $Typed } else { $null })
+        rule = $(if ($Resolve) { $Resolve.Rule } elseif ($Rule) { $Rule } else { $null })
+        score = $(if ($Resolve) { $Resolve.Score } else { $null })
+        runnerUp = if ($Resolve -and $Resolve.RunnerUp) { $Resolve.RunnerUp.Title } else { $null }
+        kind = $Kind
+        promptFile = $Slot.File
+        # for a Codex chat a sandbox word: the job's own pick, while sandbox
+        # below stays the chat's (Get-ChatqCodexRunSandbox)
+        mode = if ($Mode) { $Mode } else { $null }
+        modeAtQueue = $Info.Mode
+        # the chat's own model - what the probe asks with - and, apart from it,
+        # the one -Model asked this run to use
+        model = $Info.Model
+        runModel = if ($Model) { $Model.Trim() } else { $null }
+        first = if ($First) { Get-ChatqStamp } else { $null }
+        sandbox = $Info.Sandbox
+        network = $Info.Network
+        notBefore = if ($NotBefore) { ([datetime]$NotBefore).ToUniversalTime().ToString('o') } else { $null }
+        state = 'queued'
+        attempts = 0
+        retryAs = 'full'
+        # set when the watcher itself turned the job into a "continue" (limit or
+        # 529 mid-run); only then is it dropped if the chat moved on meanwhile.
+        # Not the auto-continue setting, and not what auto means below.
+        autoContinue = $false
+        # true for the continue auto-continue queued for a chat the limit cut
+        # off (src/auto-continue.ps1), with that cut-off's id past its chat -
+        # its limit record's uuid (Get-ChatqCutId)
+        auto = $false
+        cutUuid = $null
+        deferUntil = $null
+        # why it waits till deferUntil: vscode, auto-continue's hold for a
+        # chat open in a VS Code panel; background, a command the chat's own
+        # process started (the watcher adds deferSince and deferNote); in-use,
+        # its tab in front of you at the handover; unset, a chat that was busy
+        deferWhy = $null
+        deferredSince = $null
+        busyAlerted = $false
+        createdAt = Get-ChatqStamp
+        startedAt = $null
+        endedAt = $null
+        runnerPid = $null
+        result = $null
+        history = @([pscustomobject]@{ at = (Get-ChatqStamp); state = 'queued'; why = 'added' })
+        # sent as Next from the console: a chat busy in VS Code is looked at
+        # again every 30 s rather than every 5 minutes
+        sendNow = [bool]$SendNow
+        # the effort a Codex chat last ran at, for the words beside its model
+        # (Format-ChatqRunCarry) - never sent; a Claude chat's is read at
+        # its run's start instead (Get-ChatqRunCarry)
+        effortAtQueue = if ($Info.Effort) { [string]$Info.Effort } else { $null }
+        # the word a Codex chat's sandbox read that codex does not take -
+        # 'managed' - while sandbox above holds the workspace-write it runs
+        # in: kept so the run can say so in jobs.log (Get-ChatqCodexRunSandbox)
+        sandboxUnknown = if ($Info.SandboxUnknown) { [string]$Info.SandboxUnknown } else { $null }
+    }
+}
+
+function Register-ChatqJob {
+    # Saved, with what the prompt links to in data/queue - an image pasted in
+    # the editor tab - brought into its folder, and a line in jobs.log.
+    # Returns the files it has and those it could not take in. -NoLinks: the
+    # prompt's links are left as text and bring nothing in - a prompt typed
+    # on the phone, where nobody at the PC chose a file.
+    # -LogNote: more for the jobs.log line - auto-continue's "auto - limit
+    # 12:40, resets 13:00"
+    param($Job, [switch]$NoLinks, [string]$LogNote)
+    Save-ChatqJob $Job
+    $missed = if ($NoLinks) { @() } else { @(Sync-ChatqAttachments $Job) }
+    $files = @(Get-ChatqAttachments $Job)
+    # the folder New-ChatqJobSlot made to hold the id, which the .json holds
+    # now; only while empty - Delete refuses a folder with anything in it
+    if (-not $files) { try { [System.IO.Directory]::Delete((Get-ChatqAttachDir $Job), $false) } catch {} }
+    Write-ChatqJobLog "#$($Job.seq) queued ($($Job.kind)$(if ($LogNote) { ", $LogNote" })$(if ($files) { ", $($files.Count) file$(if ($files.Count -ne 1) { 's' })" })) $($script:ChatqDot) $($Job.title)"
+    return [pscustomobject]@{ Files = $files; Missed = $missed }
+}
+
+function Format-ChatqNewChatTitle {
+    # A new chat's name from its prompt's first line. A control or format
+    # character - an ESC or BEL pasted in - becomes a space: the name goes to
+    # the console, jobs.log and claude --name. Pure.
+    param([string]$Prompt)
+    return Format-ChatTitle (((Get-ChatqPromptStats $Prompt).First) -replace '[\p{Cc}\p{Cf}]', ' ') 60
+}
+
+function Get-ChatqNewChatTarget {
+    <#
+    A brand-new Claude chat in -Cwd, before its first run makes it: the row
+    and info New-ChatqJob takes for any chat. Its session id is chosen now
+    and handed to claude --session-id on the first run (spike S25), so its
+    transcript's path is known from the start; -Title names it, else the
+    prompt's first line. -Cwd as given, made absolute against the process's
+    folder - chatq resolves a relative one against the shell's first.
+    Returns @{ Error; Row; Info }. Writes nothing.
+    #>
+    param([string]$Cwd, [string]$Title, [string]$Prompt)
+    $dir = if ($Cwd) { try { [System.IO.Path]::GetFullPath($Cwd) } catch { $null } } else { $null }
+    # C:\ stays C:\ - as a working folder C: is wherever that drive last was
+    if ($dir -and $dir -ne [System.IO.Path]::GetPathRoot($dir)) { $dir = $dir.TrimEnd('\', '/') }
+    if (-not $dir -or -not (Test-Path -LiteralPath $dir -PathType Container)) {
+        return [pscustomobject]@{ Error = "no such folder: $Cwd"; Row = $null; Info = $null }
+    }
+    $sid = [guid]::NewGuid().ToString()
+    $slug = Get-ChatSlug $dir
+    if (-not $Title) { $Title = Format-ChatqNewChatTitle $Prompt }
+    $row = [pscustomobject]@{
+        Provider = 'claude'; Id = $sid; Title = $Title; Group = $slug; When = $null
+        Path = (Join-Path (Join-Path (Join-Path $script:ChatClaudeHome 'projects') $slug) "$sid.jsonl")
+    }
+    $info = @{ Cwd = $dir; Mode = 'default'; Model = $null; CutOff = $false; Sandbox = $null; Network = $false; Error = $null }
+    return [pscustomobject]@{ Error = $null; Row = $row; Info = $info }
+}
+
+function Get-ChatqModelRefusal {
+    # Why -Model cannot name a model, or $null: a model's name has no space,
+    # quote or %. One typed with them could never reach an npm claude.cmd
+    # (Get-ChatqCmdArgRefusal), and is turned away as it is queued rather
+    # than failing the run hours later. Pure.
+    param([string]$Model)
+    $m = ([string]$Model).Trim()
+    if ($m -and $m -match '[\s"%]') { return "-Model '$m': a model's name holds no space, quote or %" }
+    return $null
+}
+
+function Get-ChatqModeRefusal {
+    # Why a job for a chat of -Provider cannot run in -Mode, or $null: a
+    # Codex chat's mode is its sandbox, one of the three words codex takes,
+    # and a Claude chat's is never one of those. An older chatq stored a
+    # Claude mode for a Codex job and the run ignored it; now it is turned
+    # away as it is given. None given is the chat's own. Pure.
+    param([string]$Provider, [string]$Mode)
+    $m = ([string]$Mode).Trim()
+    if (-not $m) { return $null }
+    if ($Provider -eq 'codex' -and $m -cnotin $script:ChatqCodexSandboxes) {
+        return "a Codex chat runs in a sandbox - -Sandbox read-only, workspace-write or danger-full-access - not in mode $m"
+    }
+    if ($Provider -ne 'codex' -and $m -cin $script:ChatqCodexSandboxes) {
+        return "$m is a Codex sandbox - a Claude chat takes -Mode"
+    }
+    return $null
+}
+
+function New-ChatqJob {
+    <#
+    A job from a chat already picked, a prompt and files, in one call and
+    without a word to the host - what chatq does once it knows the chat,
+    and what the console does on Send. Returns @{ Error; Code; Job; Files;
+    Missed }: Error is the line chatq prints, and nothing is left behind.
+    Code: provider, kind, empty, info, copy, model, mode. The watcher is not
+    started. -Mode: a permission mode for a Claude chat, a sandbox word for
+    a Codex one (Get-ChatqModeRefusal).
+    -Sources: what Read-ChatqAttachSources gives, or @{ Files; Images }.
+    -MoveSources: those files are the console's staged copies; they move in.
+    -Kind new, with -Cwd and no -Row: a brand-new Claude chat in that
+    folder (Get-ChatqNewChatTarget); -Title names it, or the prompt's first
+    line does.
+    -JobHome: the chat's config dir, $null for the default one (see
+    New-ChatqJobRecord). -NoLinks: the prompt's links pull no files in -
+    text from the phone, where nobody at the PC chose a file: every "]("
+    in it is written "]\(", which no markdown link reads, so neither the
+    first sync nor the watcher's before it sends finds one. A link added
+    later at the PC (chatq <n>) works as in any job.
+    -Set: fields put on the job before it is saved - auto-continue's auto,
+    cutUuid, deferUntil and deferWhy - so no watcher ever reads it without
+    them. -LogNote goes on its jobs.log line. A job into a phone-made chat
+    Claude has not titled yet takes the neutral title it runs under
+    (Get-ChatqHeldTitle).
+    #>
+    param($Row, [string]$Prompt, [ValidateSet('prompt', 'continue', 'new')][string]$Kind = 'prompt', $Info,
+        [string]$Mode, [string]$Model, $NotBefore, [switch]$First, [switch]$SendNow, $Sources, [switch]$MoveSources,
+        [string]$Typed, $Resolve, [string]$Rule, [string]$Title, [string]$Cwd, $JobHome, [switch]$NoLinks,
+        [hashtable]$Set, [string]$LogNote)
+    $fail = { param($c, $t) [pscustomobject]@{ Error = $t; Code = $c; Job = $null; Files = @(); Missed = @() } }
+    $no = Get-ChatqModelRefusal $Model
+    if ($no) { return & $fail 'model' "$no - nothing queued" }
+    if ($Kind -eq 'new') {
+        $nt = Get-ChatqNewChatTarget -Cwd $Cwd -Title $Title -Prompt $Prompt
+        if ($nt.Error) { return & $fail 'info' $nt.Error }
+        if (-not ([string]$Prompt).Trim()) { return & $fail 'empty' 'empty prompt - nothing queued' }
+        $Row = $nt.Row
+        $Info = $nt.Info
+        $Title = $Row.Title
+        if (-not $Rule) { $Rule = 'new' }
+    }
+    if (-not $Row -or $Row.Provider -notin 'claude', 'codex') {
+        return & $fail 'provider' "only a Claude or Codex chat can take a prompt - nothing can resume a $(if ($Row) { $Row.Provider } else { 'missing' }) chat"
+    }
+    $no = Get-ChatqModeRefusal $Row.Provider $Mode
+    if ($no) { return & $fail 'mode' "$no - nothing queued" }
+    $hasFiles = $Sources -and (@($Sources.Files | Where-Object { $_ }).Count -or $Sources.Image -or ($Sources -is [hashtable] -and @($Sources['Images']).Count))
+    if ($Kind -eq 'continue' -and $hasFiles) { return & $fail 'kind' '-Continue sends "continue" and nothing else - give the files with -Prompt instead' }
+    if ($Kind -ne 'continue' -and -not ([string]$Prompt).Trim()) { return & $fail 'empty' 'empty prompt - nothing queued' }
+    if (-not $Info) { $Info = Get-ChatqJobInfo $Row }
+    if ($Info.Error) { return & $fail 'info' $Info.Error }
+    # a phone-made chat Claude has not titled yet keeps its neutral title
+    if ($Kind -ne 'new' -and -not $Title) {
+        $held = Get-ChatqHeldTitle $Row
+        if ($held) {
+            $Title = $held
+            $Set = if ($Set) { $Set.Clone() } else { @{} }
+            $Set['titleHeld'] = $true
+        }
+    }
+    $slot = New-ChatqJobSlot $Row $Title
+    # the files before the prompt: one that cannot be copied stops the job
+    # before anything of it is written, and gives its number back
+    if ($hasFiles) {
+        try { $null = Save-ChatqAttachSources $slot.Dir $Sources -Move:$MoveSources }
+        catch {
+            Remove-Item -LiteralPath $slot.Path -Force -EA SilentlyContinue
+            return & $fail 'copy' "a file could not be copied - nothing queued: $($_.Exception.Message)"
+        }
+    }
+    if ($NoLinks -and $Kind -ne 'continue') { $Prompt = ([string]$Prompt).Replace('](', ']\(') }
+    Save-ChatqText $slot.Path ($slot.Header + $(if ($Kind -eq 'continue') { $script:ChatqContinueText } else { $Prompt }))
+    $homeArg = @{}
+    if ($PSBoundParameters.ContainsKey('JobHome')) { $homeArg['JobHome'] = $JobHome }
+    $job = New-ChatqJobRecord $slot $Row $Info -Kind $Kind -Mode $Mode -Model $Model -NotBefore $NotBefore -First:$First -SendNow:$SendNow -Typed $Typed -Resolve $Resolve -Rule $Rule -Title $Title @homeArg
+    if ($Set) { foreach ($k in @($Set.Keys)) { Set-ChatqProp $job $k $Set[$k] } }
+    $reg = Register-ChatqJob $job -NoLinks:$NoLinks -LogNote $LogNote
+    # the neutral title outlives the job too (Set-ChatqHeldTitleMark)
+    if ($Kind -eq 'new' -and (Get-ChatField $job 'titleHeld')) { Set-ChatqHeldTitleMark ([string]$job.sessionId) $Title }
+    return [pscustomobject]@{ Error = $null; Code = $null; Job = $job; Files = $reg.Files; Missed = $reg.Missed }
+}
+
+function Get-ChatqRowById {
+    <#
+    The index's row for a chat known by its id: the console picks chats from
+    lists, so nothing fuzzy, and no Sync-ChatIndex on the window's thread.
+    A Claude chat not in the index yet - one the limit has just cut off often
+    is not - is described from its transcript: -Path, or found by -Cwd and
+    id. Hidden (sidechain) chats are not rows.
+    #>
+    param([string]$Id, [string]$Provider, [string]$Path, [string]$Cwd)
+    if (-not $Id) { return $null }
+    foreach ($r in @(Get-ChatIndex)) {
+        if ($r.Id -and $r.Id -eq $Id -and (-not $Provider -or $r.Provider -eq $Provider)) {
+            if ($r.Hidden) { return $null }
+            return $r
+        }
+    }
+    if ($Provider -and $Provider -ne 'claude') { return $null }
+    $p = if ($Path -and (Test-Path -LiteralPath $Path)) { $Path } else { Find-ChatOverlayTranscript $script:ChatClaudeHome $Cwd $Id }
+    if (-not $p) { return $null }
+    $f = Get-Item -LiteralPath $p -EA SilentlyContinue
+    if (-not $f) { return $null }
+    $rec = try { & $script:ChatProviders['claude'].Describe $f } catch { $null }
+    if (-not $rec -or $rec.Hidden) { return $null }
+    [pscustomobject]@{
+        Provider = 'claude'; Path = $f.FullName; Size = $f.Length; Mtime = $f.LastWriteTimeUtc.Ticks
+        Id = $rec.Id; Title = $rec.Title; Titled = $rec.TitleSource; Group = $rec.Group; Hidden = $false
+        When = $(if ($rec.When) { $rec.When.ToString('o') } else { $null }); First = @($rec.First); Last = @($rec.Last)
+    }
+}
+
+function Invoke-ChatqContinueChats {
+    <#
+    "Continue from where you left off." for each chat the limit or a 529
+    stopped - one New-ChatqJob each - for the console's Continue all and the
+    overlay's reset ask. A chat that already has a job waiting or running is
+    left alone and named in Had: a list is redrawn only on the next pass,
+    and a second click would queue it twice. -Items: objects with Id, Title,
+    Path and Cwd. Returns @{ Queued = the job records; Had = session ids;
+    Fails = "title: why" }. The watcher is not asked: a caller does that
+    once, when Queued is not empty.
+    A chat a window's restart cut off (Why restart, Get-ChatRestartCutOffs)
+    gets a prompt in place of the bare continue: one that says what the
+    restart took with it (Get-ChatqRestartPrompt), since a background
+    workflow or agent does not come back with the chat - in the chat's own
+    mode all the same, and with its cut-off's message uuid (restartUuid),
+    so the watcher drops it once the chat has moved on (Invoke-ChatqJob).
+    #>
+    param([object[]]$Items)
+    $queued = [System.Collections.Generic.List[object]]::new()
+    $had = [System.Collections.Generic.List[string]]::new()
+    $fails = [System.Collections.Generic.List[string]]::new()
+    $taken = @{}
+    foreach ($j in @(Get-ChatqJobs)) { if ($j.state -in 'queued', 'running' -and $j.sessionId) { $taken[[string]$j.sessionId] = $true } }
+    foreach ($i in @($Items)) {
+        if (-not $i) { continue }
+        $id = [string](Get-ChatField $i 'Id')
+        $title = [string](Get-ChatField $i 'Title')
+        if ($id -and $taken[$id]) { $had.Add($id); continue }
+        $row = Get-ChatqRowById $id 'claude' ([string](Get-ChatField $i 'Path')) ([string](Get-ChatField $i 'Cwd'))
+        if (-not $row) { $fails.Add("${title}: not found"); continue }
+        $made = if ([string](Get-ChatField $i 'Why') -eq 'restart') {
+            $u = [string](Get-ChatField $i 'LimitUuid')
+            $set = @{}
+            # "h<host pid>" stands in for a message with no uuid: nothing to
+            # compare the chat's last message with
+            if ($u -and $u -notmatch '^h\d+$') { $set['restartUuid'] = $u }
+            New-ChatqJob -Row $row -Prompt (Get-ChatqRestartPrompt $i) -Kind prompt -Rule 'restart' -NoLinks -Set $set -LogNote 'after a restart'
+        }
+        else { New-ChatqJob -Row $row -Kind continue -Rule 'continue' }
+        if ($made.Error) { $fails.Add("${title}: $($made.Error)") }
+        else { $queued.Add($made.Job); $taken[$id] = $true }
+    }
+    return [pscustomobject]@{ Queued = $queued.ToArray(); Had = $had.ToArray(); Fails = $fails.ToArray() }
+}
+
+function Format-ChatqContinueSay {
+    # What a Continue said it did, in the console and for the reset ask: how
+    # many it queued, that they go ahead of the prompts waiting (Get-ChatqJobs
+    # puts continues there) and one at a time - the watcher runs one job,
+    # then the next, so chats one limit cut off are continued one after
+    # another, never side by side. -Restart: every one of them is a chat a
+    # window's restart cut off, which has no limit to wait for. Pure.
+    param([int]$Queued, [int]$Had, [switch]$Restart)
+    $how = if ($Queued -lt 1) { '' }
+    elseif ($Restart) { ' ahead of the prompts waiting' + $(if ($Queued -gt 1) { ' - one at a time' } else { '' }) }
+    elseif ($Queued -gt 1) { ' ahead of the prompts waiting - one at a time, each when its limit is over' } else { ' ahead of the prompts waiting - it goes when its limit is over' }
+    return "queued $Queued continue$(if ($Queued -ne 1) { 's' })$how$(if ($Had) { "; $Had had one already" })"
+}
+
+function Remove-ChatqJob {
+    # A job and everything it has: its file, prompt, log, and the copies of
+    # its files - the originals were never touched - and a run's own
+    # settings a watcher that died left (Invoke-ChatqRun). Not a running one.
+    param($Job, [string]$By = 'chatqrm')
+    # its state as the file has it now, not as the caller read it: the
+    # watcher may have started it since
+    $file = Join-Path $script:ChatqQueueDir "$($Job.id).json"
+    $disk = Read-ChatqJson $file
+    if ($disk -and $disk.id -eq $Job.id) { $Job = $disk }
+    if ($Job.state -eq 'running') { return $false }
+    # its file first, and only on: a reader holding it open (the watcher,
+    # a board write) is waited out, as Read-ChatqJson waits - and a file
+    # that stays is said, never logged as removed
+    for ($try = 1; $try -le 3 -and (Test-Path -LiteralPath $file); $try++) {
+        Remove-Item -LiteralPath $file -Force -EA SilentlyContinue
+        if (Test-Path -LiteralPath $file) { Start-Sleep -Milliseconds 100 }
+    }
+    if (Test-Path -LiteralPath $file) { return $false }
+    foreach ($p in @((Get-ChatqPromptPath $Job), (Join-Path $script:ChatqLogDir "$($Job.id).jsonl"),
+            (Join-Path $script:ChatqRunSettingsDir "$($Job.id).json"))) {
+        if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Force -EA SilentlyContinue }
+    }
+    $ad = Get-ChatqAttachDir $Job
+    if (Test-Path -LiteralPath $ad) { Remove-Item -LiteralPath $ad -Recurse -Force -EA SilentlyContinue }
+    Write-ChatqJobLog "#$($Job.seq) removed by $By (was $($Job.state)) $($script:ChatqDot) $($Job.title)"
+    return $true
+}
+
+function Stop-ChatqJobRun {
+    # A running job stopped: 'cancelling' - a cancel file its watcher reads
+    # within seconds - or 'failed', when no watcher is alive to read one:
+    # the job was left running by one that died, and there is nothing to stop.
+    # 'not running': it ended before the click, and what it ended with stands.
+    param($Job)
+    if ($Job.state -ne 'running') { return 'not running' }
+    if (Test-ChatqWatcherAlive) {
+        Save-ChatqText (Join-Path $script:ChatqQueueDir "$($Job.id).cancel") 'cancel'
+        return 'cancelling'
+    }
+    Complete-ChatqJob $Job 'failed' ([pscustomobject]@{ kind = 'failed'; reason = 'cancelled - its watcher was already gone' }) 'cancelled'
+    return 'failed'
+}
+
+function Set-ChatqJobFirst {
+    # to the front of its lane: the latest one put first goes ahead
+    param($Job)
+    Set-ChatqProp $Job 'first' (Get-ChatqStamp)
+    Save-ChatqJob $Job
+}
+
+function Set-ChatqJobRunAs {
+    <#
+    A waiting job's permission mode (-What mode) or model (-What model)
+    changed before it sends, as the console's chips in its details pane
+    do: '' puts back the chat's own - the mode it last ran in, its own
+    model. A Codex job's mode is its sandbox: read-only, workspace-write or
+    danger-full-access (Get-ChatqModeRefusal); its model goes out as -m.
+    Returns why it could not, or $null. Only while it waits: the watcher
+    reads both as the run starts.
+    #>
+    param($Job, [ValidateSet('mode', 'model')][string]$What, [string]$Value)
+    # its state as the file has it now, not as the caller read it: the
+    # watcher may have started it since, and a copy saved over that would
+    # put a running job back in the queue (Remove-ChatqJob reads it so too)
+    $disk = Read-ChatqJson (Join-Path $script:ChatqQueueDir "$($Job.id).json")
+    if ($disk -and $disk.id -eq $Job.id) { $Job = $disk }
+    if ($Job.state -ne 'queued') { return "#$($Job.seq) is $($Job.state) - its $What is fixed now" }
+    $v = ([string]$Value).Trim()
+    if ($What -eq 'model') {
+        $no = Get-ChatqModelRefusal $v
+        if ($no) { return $no }
+        Set-ChatqProp $Job 'runModel' $(if ($v) { $v } else { $null })
+    }
+    else {
+        $no = Get-ChatqModeRefusal $Job.provider $v
+        if ($no) { return "#$($Job.seq) is a $(if ($Job.provider -eq 'codex') { 'Codex' } else { 'Claude' }) chat's: $no" }
+        Set-ChatqProp $Job 'mode' $(if ($v) { $v } else { $null })
+    }
+    # over its file only: one removed meanwhile is not made again
+    if (-not (Save-ChatqJob $Job -Existing)) { return "#$($Job.seq) is gone" }
+    $word = if ($What -eq 'mode' -and $Job.provider -eq 'codex') { 'sandbox' } else { $What }
+    Write-ChatqJobLog "#$($Job.seq) $word $(if ($v) { $v } else { 'as the chat has it' }) $($script:ChatqDot) $($Job.title)"
+    return $null
+}
+
+function Reset-ChatqJob {
+    # A finished job queued again, as chatqrun <n> does. One whose prompt
+    # already reached the chat goes as "continue", never the prompt twice.
+    # Returns @{ Error; Landed }. -Mode: a Codex job's is a sandbox word
+    # (Get-ChatqModeRefusal).
+    param($Job, [string]$Mode)
+    if ($Job.state -notin 'failed', 'needs-input', 'done', 'skipped') { return [pscustomobject]@{ Error = "#$($Job.seq) is $($Job.state) - nothing to requeue"; Landed = $false } }
+    $no = Get-ChatqModeRefusal $Job.provider $Mode
+    if ($no) { return [pscustomobject]@{ Error = "#$($Job.seq): $no"; Landed = $false } }
+    if ($Mode) { Set-ChatqProp $Job 'mode' $Mode }
+    # looked for from its start; a job that never started - cancelled during
+    # its handover, given up while busy - from its end, as its prompt was
+    # never sent: from nothing, any earlier turn of the chat opening with
+    # the same words would read as the prompt landed, and it never would
+    $from = Get-ChatField $Job 'startedAt'
+    if (-not $from) { $from = Get-ChatField $Job 'endedAt' }
+    $landed = $Job.state -in 'needs-input', 'done' -or $Job.retryAs -eq 'continue' -or
+    (Test-ChatqPromptLanded $Job.path ([string](Read-ChatqPrompt $Job)) $from $Job.provider)
+    Set-ChatqProp $Job 'retryAs' $(if ($landed) { 'continue' } else { 'full' })
+    # asked for by you: sent even if the chat has moved on since
+    Set-ChatqProp $Job 'autoContinue' $false
+    Set-ChatqProp $Job 'deferUntil' $null
+    Set-ChatqProp $Job 'deferredSince' $null
+    # asked for by hand: the retry counts start over
+    Set-ChatqProp $Job 'retryAt' $null
+    Set-ChatqProp $Job 'noProgress' 0
+    Set-ChatqProp $Job 'netRetries' 0
+    Set-ChatqJobState $Job 'queued' 'requeued'
+    return [pscustomobject]@{ Error = $null; Landed = [bool]$landed }
+}
+
+function Get-ChatqJobFilesRefusal {
+    # why a job can take no more files, or $null
+    param($Job)
+    if ($Job.state -ne 'queued') { return "#$($Job.seq) is $($Job.state) - files added now would go nowhere" }
+    if ($Job.kind -eq 'continue') { return "#$($Job.seq) sends ""continue"" and nothing else - files would go nowhere" }
+    return $null
+}
+
+function Add-ChatqJobFiles {
+    # more files for a job still waiting - the screenshot that was forgotten.
+    # Returns @{ Error; Files }.
+    param($Job, $Sources, [switch]$Move)
+    $no = Get-ChatqJobFilesRefusal $Job
+    if ($no) { return [pscustomobject]@{ Error = $no; Files = @() } }
+    $new = try { @(Save-ChatqAttachSources (Get-ChatqAttachDir $Job) $Sources -Move:$Move) }
+    catch { return [pscustomobject]@{ Error = "a file could not be copied - nothing added: $($_.Exception.Message)"; Files = @() } }
+    Write-ChatqJobLog "#$($Job.seq) +$($new.Count) file$(if ($new.Count -ne 1) { 's' }) $($script:ChatqDot) $($Job.title)"
+    return [pscustomobject]@{ Error = $null; Files = $new }
+}
+
+# Deferred: DEFERRED.md "Run reply streamed into the console"
+function Get-ChatqLogEntries {
+    <#
+    What a run did, from data/logs/<id>.jsonl, as @{ Type; Text } in order:
+    init, denied, text (a reply), tool, result, error. -MaxBytes reads only
+    the log's tail - a long run's stream runs to megabytes, and the console
+    reads it on the window's thread. The user's own lines are skipped: they
+    are the prompt, and tool output fed back.
+    The log is read in 40 KB pieces, and a line is made a string only when
+    it is kept: the user's lines - most of a long run's bytes - and lines
+    over 1 MB are passed over as bytes. Read whole, a 10 MB log was a 20 MB
+    string and its lines besides, on the large object heap.
+    #>
+    param($Job, [int]$MaxBytes = 0)
+    $log = Join-Path $script:ChatqLogDir "$($Job.id).jsonl"
+    if (-not (Test-Path -LiteralPath $log)) { return @() }
+    $user = '{"type":"user"'
+    $utf8 = [System.Text.Encoding]::UTF8
+    $lines = [System.Collections.Generic.List[string]]::new()
+    # not File.ReadLines: it shares only Read, and a running job's log is held
+    # open for writing
+    $fs = try { Open-ChatRead $log } catch { return @() }
+    try {
+        $len = $fs.Length
+        $start = if ($MaxBytes -gt 0 -and $len -gt $MaxBytes) { $len - $MaxBytes } else { [int64]0 }
+        $cutFirst = $start -gt 0   # the first line of a tail is cut in two
+        $buf = [byte[]]::new(40KB)
+        $at = $start       # where in the file $buf starts
+        $lineAt = $start   # where the line being read starts
+        $take = {
+            # the line from $lineAt to -End, kept as a string or passed over
+            param([int64]$End)
+            $n = $End - $lineAt
+            if ($cutFirst -or $n -le 0 -or $n -gt 1MB) { return }
+            if ($lineAt -ge $at) {
+                $off = [int]($lineAt - $at)
+                if ($n -ge $user.Length -and $utf8.GetString($buf, $off, $user.Length) -eq $user) { return }
+                $lines.Add($utf8.GetString($buf, $off, [int]$n))
+                return
+            }
+            # begun in an earlier piece: read again from its start
+            $back = $fs.Position
+            try {
+                if ($n -ge $user.Length -and (Read-ChatTextAt $fs $lineAt $user.Length) -eq $user) { return }
+                $lines.Add((Read-ChatTextAt $fs $lineAt ([int]$n)))
+            }
+            finally { $null = $fs.Seek($back, [System.IO.SeekOrigin]::Begin) }
+        }
+        $null = $fs.Seek($start, [System.IO.SeekOrigin]::Begin)
+        while (($got = $fs.Read($buf, 0, $buf.Length)) -gt 0) {
+            # a byte order mark, as Read-ChatAllText's StreamReader dropped it
+            if ($at -eq 0 -and $got -ge 3 -and $buf[0] -eq 0xEF -and $buf[1] -eq 0xBB -and $buf[2] -eq 0xBF) { $lineAt = 3 }
+            $i = 0
+            while ($i -lt $got -and ($nl = [Array]::IndexOf($buf, [byte]10, $i, $got - $i)) -ge 0) {
+                . $take ($at + $nl)
+                $cutFirst = $false
+                $lineAt = $at + $nl + 1
+                $i = $nl + 1
+            }
+            $at += $got
+        }
+        # the last line, its newline not yet written
+        if ($lineAt -lt $at) { . $take $at }
+    }
+    catch { }
+    finally { $fs.Dispose() }
+    $d = $script:ChatqDot
+    $out = [System.Collections.Generic.List[object]]::new()
+    $add = { param($t, $x) $out.Add([pscustomobject]@{ Type = $t; Text = [string]$x }) }
+    foreach ($line in $lines) {
+        $o = try { $line.TrimEnd([char]13) | ConvertFrom-Json } catch { continue }
+        switch ($o.type) {
+            'system' {
+                if ($o.subtype -eq 'init') { & $add 'init' "session $($o.session_id) $d $($o.model) $d $($o.permissionMode) $d Claude Code $($o.claude_code_version)" }
+                elseif ($o.subtype -eq 'permission_denied') { & $add 'denied' $o.tool_name }
+            }
+            'assistant' {
+                foreach ($c in @($o.message.content)) {
+                    if ($c.type -eq 'text' -and $c.text) { & $add 'text' $c.text }
+                    elseif ($c.type -eq 'tool_use') {
+                        $arg = if ($c.input.command) { $c.input.command } elseif ($c.input.file_path) { $c.input.file_path } elseif ($c.input.pattern) { $c.input.pattern } else { '' }
+                        & $add 'tool' "$($c.name) $(([string]$arg -split "`n")[0])"
+                    }
+                }
+            }
+            'result' {
+                $t = if ($o.duration_ms) { [TimeSpan]::FromMilliseconds($o.duration_ms).ToString('hh\:mm\:ss') } else { '' }
+                & $add 'result' "$($o.subtype) $d $($o.num_turns) turns $d $t"
+            }
+            'item.completed' {
+                if ($o.item.type -eq 'agent_message') { & $add 'text' $o.item.text }
+                elseif ($o.item.type -eq 'command_execution') { & $add 'tool' $o.item.command }
+            }
+            'turn.failed' { & $add 'error' $o.error.message }
+            'error' { & $add 'error' $o.message }
+        }
+    }
+    return $out.ToArray()
+}
+
+function Request-ChatqWatcher {
+    <#
+    Start-ChatqWatcher for a window's thread, which it must never put to
+    sleep. The wake goes first - 'poke' (look again) or 'now' (stop waiting),
+    one write, as Start-ChatqWatcher does - and a process is started only
+    when none holds the lock. Whether one came up is for
+    Test-ChatqWatcherRequest to say, on a later tick.
+    #>
+    param([ValidateSet('poke', 'now')][string]$Wake = 'poke')
+    $alive = [bool](Test-ChatqWatcherAlive)
+    Send-ChatqWake $Wake
+    $spawned = if ($alive) { $false } else { [bool](Start-ChatqWatcherProcess) }
+    return [pscustomobject]@{ Alive = $alive; Spawned = $spawned; Respawned = $false; At = (Get-Date) }
+}
+
+function Test-ChatqWatcherRequest {
+    <#
+    What came of a Request-ChatqWatcher: 'up' once a watcher holds the lock,
+    'waiting' for up to 10 s, then 'failed'. A watcher running when poked may
+    have been on its way out - it had found the queue empty and not yet let
+    go - so one gone with jobs still queued is started again, once. With
+    nothing queued a watcher ends at once, so not seeing it is no failure.
+    #>
+    param($Request, [bool]$Queued)
+    if (-not $Request) { return 'none' }
+    if (Test-ChatqWatcherAlive) { return 'up' }
+    if (-not $Queued) { return 'up' }
+    if ($Request.Alive -and -not $Request.Respawned) {
+        $Request.Respawned = $true
+        $Request.Spawned = [bool](Start-ChatqWatcherProcess)
+        $Request.At = Get-Date
+        return 'waiting'
+    }
+    if (((Get-Date) - $Request.At).TotalSeconds -lt 10) { return 'waiting' }
+    return 'failed'
+}
+
+#endregion
+
+function chatq {
+    <#
+    .SYNOPSIS
+    Queue a prompt for a chat - an existing one, or a new one with -New. It is
+    sent when the usage limit resets.
+    .DESCRIPTION
+    Picks the chat now, while you are here to see the pick, and hands the job to
+    a background watcher that sends it once the limit has reset - into the chat
+    itself, in the permission mode that chat last used. Without -Prompt an
+    editor tab opens for the prompt; save and close it to queue.
+
+    chatq <n> opens queued prompt n in the editor instead, and chatq alone shows
+    the cheat sheet and the queue.
+
+    chatq -New <folder> queues it for a new Claude chat in that folder instead:
+    its first run makes the chat, which then takes prompts like any other.
+    .PARAMETER Target
+    Part or all of a chat title, or a session id. Tab completes titles. With
+    -New, the new chat's name - left out, the prompt's first line names it.
+    .PARAMETER New
+    A new Claude chat in this folder (. for the one you are in), rather than
+    an existing chat. Its first run is claude -p with an id chosen now, so
+    afterwards chatq <first 8 of that id> writes to it and claude --resume
+    opens it; VS Code's chat list does not show chats started that way.
+    .PARAMETER Prompt
+    The prompt, instead of writing it in the editor.
+    .PARAMETER Continue
+    Send "Continue from where you left off." - for a chat the limit cut off.
+    .PARAMETER Mode
+    Run in this permission mode instead of the one the chat last used. A
+    Claude chat's; a Codex chat takes -Sandbox.
+    .PARAMETER Sandbox
+    A Codex chat's: run in this sandbox - read-only, workspace-write or
+    danger-full-access - instead of the one it last used. It stays with the
+    chat, wider or narrower: the run records it, and later jobs take it as
+    the chat's own.
+    .PARAMETER At
+    Not before this time (13:00 - tomorrow if already past).
+    .PARAMETER In
+    Not before this long from now (90m, 2h, 1d).
+    .PARAMETER WhatIf
+    Show which chat would be picked, queue nothing.
+    .PARAMETER Model
+    Run this one job on another model (claude --model / codex -m). Without it
+    the chat keeps its own, which is what a resume does anyway.
+    .PARAMETER First
+    Put the job at the front of the queue instead of the back.
+    .PARAMETER Attach
+    Files to send with the prompt - images, text, code, PDF - comma-separated.
+    They are copied into the job now, so moving or editing the originals
+    changes nothing. Codex gets images as real attachments (-i); everything
+    else, and everything for Claude, is named in the prompt for it to open.
+    .PARAMETER Paste
+    Take what is on the clipboard now: a screenshot, files copied in Explorer,
+    or text. Text becomes the prompt, or is added under the one given. In the
+    editor tab, Ctrl+V pastes an image into the prompt too.
+    .PARAMETER AutoContinue
+    What becomes of a chat the usage limit cuts off. With no title, the
+    switch for every chat: ask (the default) - once the limit is over, the
+    overlay says how many chats it cut off, and continues them if you say
+    so; on - "continue" is queued for each by itself, a minute after the
+    reset; off - they are only marked. With a title or a job number, that
+    chat's own: always (continued even with the switch on ask or off),
+    never, or default (follow the switch). Run it on its own - it queues
+    nothing.
+    .EXAMPLE
+    chatq 'Parser rewrite and plugin unification' -Prompt 'Also update the changelog'
+    .EXAMPLE
+    chatq card redesign -WhatIf
+    .EXAMPLE
+    chatq 'Card layout redesign' -Prompt 'Match these two mock-ups' -Attach .\a.png, .\b.png
+    .EXAMPLE
+    chatq 'Card layout redesign' -Prompt 'What is wrong in this screenshot?' -Paste
+    .EXAMPLE
+    chatq -New . 'Release notes' -Prompt 'Draft the 0.11 release notes from CHANGELOG.md'
+    .EXAMPLE
+    chatq -New D:\src\site -Attach .\mock.png -At 13:00
+    .EXAMPLE
+    chatq -AutoContinue off
+    .EXAMPLE
+    chatq 'Parser rewrite' -AutoContinue never
+    #>
+    param(
+        [Parameter(Position = 0, ValueFromRemainingArguments)][string[]]$Target,
+        [string]$Prompt,
+        [switch]$Continue,
+        [ValidateSet('default', 'acceptEdits', 'auto', 'bypassPermissions', 'manual', 'dontAsk', 'plan')][string]$Mode,
+        [ValidateSet('read-only', 'workspace-write', 'danger-full-access')][string]$Sandbox,
+        [string]$At,
+        [string]$In,
+        [ValidateSet('claude', 'codex')][string[]]$Provider,
+        [switch]$AllProjects,
+        [switch]$WhatIf,
+        [string]$Model,
+        [switch]$First,
+        [string[]]$Attach,
+        [switch]$Paste,
+        [ValidateSet('on', 'ask', 'off', 'always', 'never', 'default')][string]$AutoContinue,
+        [string]$New
+    )
+    Set-StrictMode -Off
+    # chatq -AutoContinue: a setting, not a job (src/auto-continue.ps1).
+    # Refused beside anything that would queue, so a prompt typed with it is
+    # never taken as queued.
+    if ($PSBoundParameters.ContainsKey('AutoContinue')) {
+        Invoke-ChatqAutoCommand -Value $AutoContinue -Target ((@($Target) -join ' ').Trim()) -Given @($PSBoundParameters.Keys) -WhatIf:$WhatIf -Provider $Provider -AllProjects:$AllProjects
+        return
+    }
+    # before -New too: its editor path (New-ChatqJobRecord) has no model check of its own
+    $no = Get-ChatqModelRefusal $Model
+    if ($no) { Write-Host "  $no - nothing queued" -ForegroundColor Yellow; return }
+    $t = (@($Target) -join ' ').Trim()
+    # chatq -New <folder>: no chat to pick - one is made. Relative to the
+    # shell's folder, which is not the process's (Set-Location moves only
+    # the first).
+    if ($PSBoundParameters.ContainsKey('New')) {
+        if ($Sandbox) { Write-Host '  -Sandbox is for a Codex chat - a new chat is a Claude chat, which takes -Mode' -ForegroundColor Yellow; return }
+        $dir = if (([string]$New).Trim()) { try { $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($New) } catch { $New } } else { '' }
+        $pass = @{ Folder = $dir; Name = $t; Prompt = $Prompt; PromptGiven = $PSBoundParameters.ContainsKey('Prompt'); Mode = $Mode; Model = $Model; At = $At; In = $In
+            First = $First; Attach = $Attach; Paste = $Paste; WhatIf = $WhatIf; Continue = $Continue; Provider = $Provider }
+        Invoke-ChatqNewChat @pass
+        return
+    }
+    if (-not $t) { Write-ChatqCheatSheet; Write-ChatqList; return }
+
+    # chatq 3 - open queued prompt 3
+    if ($t -match '^#?\d{1,4}$' -and -not $PSBoundParameters.ContainsKey('Prompt') -and -not $Continue) {
+        $job = Find-ChatqJob $t
+        # chatq 3 -Attach / -Paste - add to it: the screenshot that was
+        # forgotten. Only while it waits, and only files - text belongs in the
+        # prompt, which chatq 3 opens.
+        if ($job -and ($Attach -or $Paste)) {
+            $no = Get-ChatqJobFilesRefusal $job
+            if ($no) { Write-Host "  $no" -ForegroundColor Yellow; return }
+            $got = Read-ChatqAttachSources $Attach -Paste:$Paste
+            foreach ($s in @($got.Skipped)) { Write-Host "     skipped $s - only files go, not folders" -ForegroundColor DarkGray }
+            if ($got.Error) { Write-Host "  $($got.Error) - nothing added" -ForegroundColor Yellow; return }
+            if ($got.Text) { Write-Host "  the clipboard holds text, not files - chatq $($job.seq) opens the prompt to paste it in" -ForegroundColor Yellow; return }
+            $add = Add-ChatqJobFiles $job $got
+            if ($add.Error) { Write-Host "  $($add.Error)" -ForegroundColor Yellow; return }
+            Write-Host "  #$($job.seq) '$($job.title)' now has $(Format-ChatqAttachSummary @(Get-ChatqAttachments $job))" -ForegroundColor Green
+            Write-ChatqBoard
+            return
+        }
+        if ($job) {
+            $p = Get-ChatqPromptPath $job
+            Write-Host "  #$($job.seq) '$($job.title)' $($script:ChatqDot) $($job.state) $($script:ChatqDot) $p" -ForegroundColor DarkGray
+            if ($job.state -ne 'queued') { Write-Host '  already sent - editing it changes nothing now' -ForegroundColor DarkGray }
+            elseif ($job.kind -eq 'continue') { Write-Host '  a -Continue job always sends "continue" - the file is only for show' -ForegroundColor DarkGray }
+            $af = @(Get-ChatqAttachments $job)
+            if ($af) { Write-Host "  $(Format-ChatqAttachSummary $af) $($script:ChatqDot) $(Get-ChatqAttachDir $job)" -ForegroundColor DarkGray }
+            if (Test-Path -LiteralPath $p) { Invoke-ChatqEditor $p -NoWait }
+            return
+        }
+    }
+    try { $notBefore = ConvertFrom-ChatqWhen $At $In } catch { Write-Host "  $($_.Exception.Message)" -ForegroundColor Yellow; return }
+
+    # The files and the clipboard before the pick: text pasted as the prompt
+    # should weigh in on which chat it is for, as a typed one does.
+    if (($Attach -or $Paste) -and $Continue) {
+        Write-Host '  -Continue sends "continue" and nothing else - give the files with -Prompt instead' -ForegroundColor Yellow
+        return
+    }
+    $read = Read-ChatqPromptSources -Attach $Attach -Paste:$Paste -Prompt $Prompt -Given ($PSBoundParameters.ContainsKey('Prompt'))
+    if ($read.Error) { Write-Host "  $($read.Error) - nothing queued" -ForegroundColor Yellow; return }
+    $got = $read.Got; $Prompt = $read.Prompt; $given = $read.Given; $textNote = $read.Note
+
+    $res = Resolve-ChatqTarget $t $(if ($given) { $Prompt } else { '' }) $Provider -AllProjects:$AllProjects
+    if ($res.Error) { Write-Host "  $($res.Error)" -ForegroundColor Yellow; return }
+    Write-ChatqPick $res
+    # -Mode is a Claude chat's, -Sandbox a Codex one's: the one that does
+    # not fit the chat picked is refused, never stored and then ignored
+    $runAs = if ($res.Row.Provider -eq 'codex') { $Sandbox } else { $Mode }
+    if ($res.Row.Provider -eq 'codex' -and $Mode) { Write-Host "  a Codex chat runs in a sandbox, not a mode - -Sandbox read-only, workspace-write or danger-full-access; nothing queued" -ForegroundColor Yellow; return }
+    if ($res.Row.Provider -ne 'codex' -and $Sandbox) { Write-Host "  -Sandbox is for a Codex chat - a Claude chat takes -Mode; nothing queued" -ForegroundColor Yellow; return }
+    Write-ChatqPromptHint $t $res -HasPrompt:$given -Continue:$Continue
+    $info = Get-ChatqJobInfo $res.Row
+    if ($info.Error) { Write-Host "     $($info.Error)" -ForegroundColor Yellow; return }
+    Write-ChatqJobInfo $info $runAs -Continue:$Continue $res.Row.Provider
+    if ($Model) { Write-Host "     model $Model for this run (the chat's own: $(if ($info.Model) { $info.Model } else { 'unknown' }))" -ForegroundColor DarkGray }
+    if ($textNote) { Write-Host "     $textNote" -ForegroundColor DarkGray }
+    Write-ChatqPendingFiles $got
+    if ($WhatIf) { Write-Host '     -WhatIf: nothing queued' -ForegroundColor DarkGray; return }
+
+    $how = @{ Mode = $runAs; Model = $Model; NotBefore = $notBefore; First = $First; Typed = $t }
+    if ($Continue -or $given) {
+        $made = New-ChatqJob -Row $res.Row -Prompt $Prompt -Kind $(if ($Continue) { 'continue' } else { 'prompt' }) -Info $info -Sources $got -Resolve $res @how
+        if ($made.Error) { Write-Host "  $($made.Error)" -ForegroundColor Yellow; return }
+        $job = $made.Job
+        $missed = $made.Missed
+    }
+    else {
+        # The editor. The slot writes the prompt file, header and all, and
+        # that file holds the job's number for as long as the tab stays open.
+        # The files go in before the tab opens: a copy that fails - one moved
+        # or locked since it was checked - then stops the job before a word of
+        # it has been typed, rather than after.
+        $slot = New-ChatqJobSlot $res.Row
+        if (-not (Initialize-ChatqEditorSlot $slot $got)) { return }
+        Invoke-ChatqEditor $slot.Path
+        $text = Read-ChatqEditorSlot $slot
+        if (-not $text) { return }
+        # relevance was scored on the title alone - now the prompt can weigh in.
+        # Not over to the other provider's chat with a -Mode or -Sandbox
+        # given: that one would not fit it.
+        if ($res.Rule -like '*/relevance') {
+            $res2 = Resolve-ChatqTarget $t $text $Provider -AllProjects:$AllProjects
+            if (-not $res2.Error -and $res2.Row.Path -ne $res.Row.Path -and (-not $runAs -or $res2.Row.Provider -eq $res.Row.Provider)) {
+                $info2 = Get-ChatqJobInfo $res2.Row
+                if (-not $info2.Error) {
+                    Write-ChatqPick $res2 '  re-picked with the prompt ->'
+                    Write-ChatqJobInfo $info2 $runAs -Continue:$Continue $res2.Row.Provider
+                    $res = $res2; $info = $info2
+                    $slot.File = "#$($slot.Seq) $(Get-ChatqSafeName $res.Row.Title).md"
+                    $new = Join-Path $script:ChatqQueueDir $slot.File
+                    Move-Item -LiteralPath $slot.Path -Destination $new -Force
+                    $slot.Path = $new
+                }
+            }
+        }
+        $job = New-ChatqJobRecord $slot $res.Row $info -Kind 'prompt' -Resolve $res @how
+        $missed = (Register-ChatqJob $job).Missed
+    }
+    Write-ChatqQueued $job $missed
+}
+
+function Write-ChatqPendingFiles {
+    # what -Attach and -Paste read (Read-ChatqAttachSources), before it is
+    # copied in: the files and a pasted screenshot, and a word when that is
+    # a lot for one run
+    param($Got)
+    if (-not $Got) { return }
+    $pending = @(foreach ($s in $Got.Files) { Get-Item -LiteralPath $s })
+    if ($Got.Image) { $pending += [pscustomobject]@{ Name = 'clip.png'; Length = $Got.Image.Length } }
+    if (-not $pending) { return }
+    Write-Host "     with $(Format-ChatqAttachSummary $pending)" -ForegroundColor DarkGray
+    $bytes = ($pending | Measure-Object -Property Length -Sum).Sum
+    if ($pending.Count -gt $script:ChatqAttachWarnCount -or $bytes -gt $script:ChatqAttachWarnBytes) {
+        Write-Host '     that is a lot for one run - every file costs context, and usage' -ForegroundColor Yellow
+    }
+}
+
+function Read-ChatqPromptSources {
+    # -Attach and -Paste for chatq and chatq -New: read, each folder skipped
+    # said, the clipboard's text made the prompt or put under the one given.
+    # Returns @{ Error; Got; Prompt; Given; Note }
+    param([string[]]$Attach, [switch]$Paste, [string]$Prompt, [bool]$Given)
+    $got = $null
+    $note = $null
+    if ($Attach -or $Paste) {
+        $got = Read-ChatqAttachSources $Attach -Paste:$Paste
+        foreach ($s in @($got.Skipped)) { Write-Host "     skipped $s - only files go, not folders" -ForegroundColor DarkGray }
+        if ($got.Error) { return [pscustomobject]@{ Error = $got.Error } }
+    }
+    if ($got -and $got.Text) {
+        if ($Given) { $Prompt = $Prompt.TrimEnd() + "`n`n" + $got.Text; $note = "the clipboard's text goes under the prompt" }
+        else { $Prompt = $got.Text; $Given = $true; $note = "the clipboard's text is the prompt" }
+    }
+    return [pscustomobject]@{ Error = $null; Got = $got; Prompt = $Prompt; Given = $Given; Note = $note }
+}
+
+function Initialize-ChatqEditorSlot {
+    # chatq's and chatq -New's editor, up to the tab: the files into the slot
+    # first - a copy that fails takes the prompt file back, is said, and gives
+    # $false - then what to do in the tab. The editor stays its caller's call:
+    # what it prints is never captured here.
+    param($Slot, $Got)
+    if ($Got) {
+        try { $null = Save-ChatqAttachSources $Slot.Dir $Got }
+        catch {
+            Remove-Item -LiteralPath $Slot.Path -Force -EA SilentlyContinue
+            Write-Host "  a file could not be copied - nothing queued: $($_.Exception.Message)" -ForegroundColor Yellow
+            return $false
+        }
+    }
+    Write-Host '     write the prompt in the editor tab, then save and close it (empty = cancel)' -ForegroundColor DarkGray
+    Write-Host '     Ctrl+V there pastes a screenshot into it, and it goes with the prompt' -ForegroundColor DarkGray
+    return $true
+}
+
+function Read-ChatqEditorSlot {
+    # the prompt written in a slot's tab, header left out; left empty, the
+    # slot's file and folder go, it is said, and $null comes back
+    param($Slot)
+    $text = Remove-ChatqPromptHeader ([System.IO.File]::ReadAllText($Slot.Path, [System.Text.Encoding]::UTF8))
+    if ($text) { return $text }
+    Remove-Item -LiteralPath $Slot.Path -Force -EA SilentlyContinue
+    Remove-Item -LiteralPath $Slot.Dir -Recurse -Force -EA SilentlyContinue
+    Write-Host '  cancelled - nothing queued' -ForegroundColor DarkGray
+    return $null
+}
+
+function Invoke-ChatqNewChat {
+    <#
+    chatq -New: a prompt for a Claude chat that does not exist yet, in
+    -Folder - the console's + New chat, from a shell. -Name - what chatq
+    takes after the folder, its positional words - is its title, else the
+    prompt's first line. The prompt comes from -Prompt, the
+    clipboard's text (-Paste) or the editor tab, and the files from -Attach
+    and -Paste, as for any chat; -Mode, -Model, -At, -In, -First and
+    -WhatIf as well. A given prompt is New-ChatqJob -Kind new; with the
+    editor the slot is made first, as chatq's own, and the title taken
+    from the first line once the tab closes. -Folder is absolute already:
+    chatq resolves it against the shell's folder. Prints as chatq does.
+    #>
+    param([string]$Folder, [string]$Name, [string]$Prompt, [switch]$PromptGiven, [string]$Mode, [string]$Model, [string]$At, [string]$In,
+        [switch]$First, [string[]]$Attach, [switch]$Paste, [switch]$WhatIf, [switch]$Continue, [string[]]$Provider)
+    if ($Continue) { Write-Host '  a new chat has nothing to continue - give it a prompt, or leave -Prompt off for the editor' -ForegroundColor Yellow; return }
+    if (@($Provider | Where-Object { $_ -and $_ -ne 'claude' }).Count) { Write-Host '  a new chat is a Claude chat - start a Codex one in Codex' -ForegroundColor Yellow; return }
+    if (-not ([string]$Folder).Trim()) { Write-Host "  -New takes the new chat's folder - chatq -New . for the one you are in" -ForegroundColor Yellow; return }
+    try { $notBefore = ConvertFrom-ChatqWhen $At $In } catch { Write-Host "  $($_.Exception.Message)" -ForegroundColor Yellow; return }
+    $read = Read-ChatqPromptSources -Attach $Attach -Paste:$Paste -Prompt $Prompt -Given ([bool]$PromptGiven)
+    if ($read.Error) { Write-Host "  $($read.Error) - nothing queued" -ForegroundColor Yellow; return }
+    $got = $read.Got; $Prompt = $read.Prompt; $given = $read.Given; $textNote = $read.Note
+    if ($given -and -not ([string]$Prompt).Trim()) { Write-Host '  empty prompt - nothing queued' -ForegroundColor Yellow; return }
+    # as the phone's new chat: nothing that would break a line or a file name
+    $title = (([string]$Name) -replace '[\p{Cc}\p{Cf}]', ' ').Trim()
+    $nt = Get-ChatqNewChatTarget -Cwd $Folder -Title $title -Prompt $(if ($given) { $Prompt } else { '' })
+    if ($nt.Error) { Write-Host "  $($nt.Error) - nothing queued" -ForegroundColor Yellow; return }
+    $row = $nt.Row
+    $info = $nt.Info
+    $named = if ($title) { "'$title'" } elseif ($given) { "'$($row.Title)' (its first line)" } else { '- named by the prompt''s first line' }
+    Write-Host "  -> a new chat $named  claude" -ForegroundColor Cyan
+    Write-ChatqJobInfo $info $Mode -Provider claude -New
+    if ($Model) { Write-Host "     model $Model for this run" -ForegroundColor DarkGray }
+    if ($textNote) { Write-Host "     $textNote" -ForegroundColor DarkGray }
+    Write-ChatqPendingFiles $got
+    if ($WhatIf) { Write-Host '     -WhatIf: nothing queued' -ForegroundColor DarkGray; return }
+
+    $how = @{ Mode = $Mode; Model = $Model; NotBefore = $notBefore; First = $First }
+    if ($given) {
+        $made = New-ChatqJob -Kind new -Cwd $info.Cwd -Title $title -Prompt $Prompt -Sources $got @how
+        if ($made.Error) { Write-Host "  $($made.Error)" -ForegroundColor Yellow; return }
+        Write-ChatqQueued $made.Job $made.Missed
+        return
+    }
+    # the editor, as chatq's own: the slot - and the files - before the tab
+    $leaf = Split-Path $info.Cwd -Leaf
+    $slot = New-ChatqJobSlot $row $(if ($title) { $title } else { "a new chat in $(if ($leaf) { $leaf } else { $info.Cwd })" })
+    if (-not (Initialize-ChatqEditorSlot $slot $got)) { return }
+    Invoke-ChatqEditor $slot.Path
+    $text = Read-ChatqEditorSlot $slot
+    if (-not $text) { return }
+    if (-not $title) {
+        # named now the prompt is written; its file is renamed to match, as
+        # chatq's re-pick does
+        $row.Title = Format-ChatqNewChatTitle $text
+        $slot.File = "#$($slot.Seq) $(Get-ChatqSafeName $row.Title).md"
+        $to = Join-Path $script:ChatqQueueDir $slot.File
+        Move-Item -LiteralPath $slot.Path -Destination $to -Force
+        $slot.Path = $to
+        Write-Host "     named '$($row.Title)', its first line" -ForegroundColor DarkGray
+    }
+    $job = New-ChatqJobRecord $slot $row $info -Kind new -Rule 'new' -Title $row.Title @how
+    Write-ChatqQueued $job (Register-ChatqJob $job).Missed
+}
+
+function Write-ChatqQueued {
+    # chatq's last words on a job it queued - its number, when it sends and
+    # why, its files - then the watcher started and the board written
+    param($Job, $Missed)
+    $seq = $job.seq
+    # what the prompt links to in data/queue: an image pasted in the tab.
+    # None missed can come as $null (New-ChatqJob's), which @() would make
+    # one blank line of.
+    foreach ($x in @($Missed | Where-Object { $_ })) { Write-Host "     could not take in $x - it goes without it" -ForegroundColor Yellow }
+    $files = @(Get-ChatqAttachments $job)
+
+    $jobs = @(Get-ChatqJobs)
+    # the watcher's own view if it is running - it knows about an overload -
+    # else a scan of the transcripts
+    $blocks = Get-ChatqBlocks
+    $eta = (Get-ChatqEta $jobs $blocks)[$job.id]
+    $b = $blocks[(Get-ChatqLane $job)]
+    # Codex has no status page read: its outage is a backoff alone
+    $why = if ($b -and $b.Type -eq 'overloaded' -and $job.provider -eq 'claude') { ' (Claude is overloaded - watching status.claude.com)' }
+    elseif ($b -and $b.Type -eq 'overloaded') { " ($(Format-ChatqProvider $job.provider) is overloaded - tried again after 1, 2, 5, 10, then every 15 min)" }
+    elseif ($b -and $b.Until) { " ($($b.Type) limit resets $($b.Until.ToString('HH:mm')))" }
+    else { ' (not limited right now)' }
+    Write-Host "  queued #$seq  sends $eta$why" -ForegroundColor Green
+    if ($files) { Write-Host "     $(Format-ChatqAttachSummary $files)" -ForegroundColor DarkGray }
+    if ($job.kind -eq 'new') {
+        # VS Code's chat list never shows a chat claude -p started (README,
+        # Chats Claude Code hides): say how it is reached instead
+        $sid = [string]$job.sessionId
+        Write-Host "     its first run makes the chat; then chatq $($sid.Substring(0, 8)) writes to it, and claude --resume $sid opens it in a terminal" -ForegroundColor DarkGray
+    }
+    if (-not (Start-ChatqWatcher)) {
+        Write-Host '  the watcher did not start - chatqrun to try again, chatqrun -Foreground to see why' -ForegroundColor Yellow
+    }
+    Write-ChatqBoard
+}
+
+function chatqlist {
+    <#
+    .SYNOPSIS
+    What is queued, when it sends, and what already ran.
+    .PARAMETER Board
+    Open the live board (data/queue.md) in VS Code - Ctrl+Shift+V there for the
+    preview, which follows every change. Long prompts fold away.
+    .PARAMETER All
+    Include every finished job, not just the last day's.
+    #>
+    param([switch]$Board, [switch]$All)
+    Set-StrictMode -Off
+    if ($Board) {
+        Write-ChatqBoard
+        Invoke-ChatqEditor $script:ChatqBoardPath -NoWait
+        Write-Host '  opened data/queue.md - Ctrl+Shift+V there for the live preview' -ForegroundColor DarkGray
+        return
+    }
+    Write-ChatqList -All:$All
+}
+
+function chatqrm {
+    <#
+    .SYNOPSIS
+    Drop queued jobs by number or id. -Force cancels one that is running.
+    .PARAMETER Finished
+    Drop every job that is done, skipped, failed or needs input.
+    #>
+    param([Parameter(Position = 0, ValueFromRemainingArguments)][string[]]$Ref, [switch]$Force, [switch]$Finished)
+    Set-StrictMode -Off
+    $jobs = @(Get-ChatqJobs)
+    $targets = if ($Finished) { @($jobs | Where-Object { $_.state -in 'done', 'skipped', 'failed', 'needs-input' }) }
+    else { @(foreach ($r in @($Ref)) { $j = Find-ChatqJob $r $jobs; if ($j) { $j } else { Write-Host "  no job $r" -ForegroundColor Yellow } }) }
+    if (-not $targets) { if (-not $Ref -and -not $Finished) { Write-Host '  usage: chatqrm <n> [-Force] | chatqrm -Finished' -ForegroundColor DarkGray }; return }
+    foreach ($j in $targets) {
+        if ($j.state -eq 'running') {
+            if (-not $Force) { Write-Host "  #$($j.seq) is running - chatqrm $($j.seq) -Force cancels it" -ForegroundColor Yellow; continue }
+            $stop = Stop-ChatqJobRun $j
+            if ($stop -eq 'cancelling') {
+                Write-Host "  #$($j.seq) cancelling - stopped within a few seconds" -ForegroundColor DarkGray
+                continue
+            }
+            if ($stop -eq 'not running') { Write-Host "  #$($j.seq) had already ended - chatqrm $($j.seq) removes it" -ForegroundColor DarkGray; continue }
+            Write-Host "  #$($j.seq) was left running by a watcher that stopped - marked failed" -ForegroundColor DarkGray
+            Write-Host "    chatqrm $($j.seq) removes it, chatqrun $($j.seq) sends it again" -ForegroundColor DarkGray
+            continue
+        }
+        if (Remove-ChatqJob $j) { Write-Host "  removed #$($j.seq) '$($j.title)'" -ForegroundColor DarkGray }
+        else { Write-Host "  #$($j.seq) could not be removed - it started running, or its file is in use" -ForegroundColor Yellow }
+    }
+    Write-ChatqBoard
+}
+
+function chatqrun {
+    <#
+    .SYNOPSIS
+    Start the watcher, requeue a job, skip the wait, or stop.
+    .PARAMETER Ref
+    A failed or needs-input job to queue again. One whose prompt already reached
+    the chat is sent as "continue" rather than twice.
+    .PARAMETER Now
+    Stop waiting for the reset: probe now, and send if the limit is over.
+    .PARAMETER Foreground
+    Run the watcher in this console and watch what it does.
+    .PARAMETER Stop
+    Stop the watcher. A running job is cut off and marked failed.
+    .PARAMETER Mode
+    With a job number: requeue it in this permission mode. A Claude job's.
+    .PARAMETER Sandbox
+    With a Codex job's number: requeue it in this sandbox - read-only,
+    workspace-write or danger-full-access.
+    .PARAMETER First
+    With a job number: put it at the front of the queue - a queued one moves
+    up, a finished one is requeued there.
+    #>
+    param(
+        [Parameter(Position = 0)][string]$Ref,
+        [switch]$Now, [switch]$Foreground, [switch]$Stop,
+        [ValidateSet('default', 'acceptEdits', 'auto', 'bypassPermissions', 'manual', 'dontAsk', 'plan')][string]$Mode,
+        [ValidateSet('read-only', 'workspace-write', 'danger-full-access')][string]$Sandbox,
+        [switch]$First
+    )
+    Set-StrictMode -Off
+    if ($Stop) {
+        # Listening for phone replies stops too, and before data/stop is
+        # written: while the window is open every new shell - and a watcher
+        # on its way out - starts a watcher to listen. The next alert that
+        # can be answered opens it again.
+        $closed = Close-ChatqReplyWindow
+        if (-not (Test-ChatqWatcherAlive)) {
+            Write-Host "  the watcher is not running$(if (-not $closed) { ' - data/replies.json could not be written, so a new shell may start one to listen for phone replies' })" -ForegroundColor DarkGray
+            return
+        }
+        Save-ChatqText $script:ChatqStopPath 'stop'
+        Write-Host '  stopping - within a few seconds' -ForegroundColor DarkGray
+        return
+    }
+    if ($Ref) {
+        $j = Find-ChatqJob $Ref
+        if (-not $j) { Write-Host "  no job $Ref" -ForegroundColor Yellow; return }
+        # -Mode for a Claude job, -Sandbox for a Codex one, as chatq takes them
+        if ($j.provider -eq 'codex' -and $Mode) { Write-Host "  #$($j.seq) is a Codex chat's - it runs in a sandbox: -Sandbox read-only, workspace-write or danger-full-access" -ForegroundColor Yellow; return }
+        if ($j.provider -ne 'codex' -and $Sandbox) { Write-Host "  #$($j.seq) is a Claude chat's - -Sandbox is for a Codex one; it takes -Mode" -ForegroundColor Yellow; return }
+        if ($First -and $j.state -eq 'queued') {
+            Set-ChatqJobFirst $j
+            Write-Host "  #$($j.seq) moved to the front" -ForegroundColor Green
+            Write-ChatqBoard
+            Write-ChatqList
+            return
+        }
+        # a finished one put first is requeued there
+        if ($First -and $j.state -in 'failed', 'needs-input', 'done', 'skipped') { Set-ChatqProp $j 'first' (Get-ChatqStamp) }
+        $again = Reset-ChatqJob $j $(if ($j.provider -eq 'codex') { $Sandbox } else { $Mode })
+        if ($again.Error) { Write-Host "  $($again.Error)" -ForegroundColor DarkGray; return }
+        $how = if ($again.Landed) { 'as "continue" - the prompt already reached the chat' } else { 'with its prompt' }
+        Write-Host "  #$($j.seq) queued again, $how" -ForegroundColor Green
+        $stick = if ($Sandbox) { Get-ChatqCodexStickSay (ConvertTo-ChatqCodexSandbox ([string]$j.sandbox)).Sandbox $Sandbox } else { $null }
+        if ($stick) { Write-Host "     $stick" -ForegroundColor Yellow }
+    }
+    if ($Foreground) {
+        if ($Now) { Send-ChatqWake 'now' }
+        Invoke-ChatqWatchLoop -Foreground
+        return
+    }
+    # -Now travels as the watcher's one wake-up write: sent separately, the
+    # poke that follows would overwrite it before the watcher read it
+    $wake = if ($Now) { 'now' } else { 'poke' }
+    if (@(Get-ChatqJobs | Where-Object { $_.state -eq 'queued' })) {
+        if (-not (Start-ChatqWatcher -Wake $wake)) { Write-Host '  the watcher did not start - chatqrun -Foreground to see why' -ForegroundColor Yellow }
+    }
+    Write-ChatqList
+}
+
+function chatqlog {
+    <#
+    .SYNOPSIS
+    What a run did: the reply, the tools it used, how it ended. -Raw for the stream.
+    #>
+    param([Parameter(Position = 0)][string]$Ref, [switch]$Raw)
+    Set-StrictMode -Off
+    $j = if ($Ref) { Find-ChatqJob $Ref } else { @(Get-ChatqJobs | Where-Object { $_.startedAt } | Sort-Object startedAt)[-1] }
+    if (-not $j) { Write-Host '  no such job' -ForegroundColor Yellow; return }
+    Write-Host ''
+    Write-Host "  #$($j.seq) '$($j.title)' $($script:ChatqDot) $($j.state)" -ForegroundColor Cyan
+    foreach ($h in @($j.history)) {
+        $at = ConvertTo-ChatqDate $h.at
+        Write-Host ("    {0}  {1,-11} {2}" -f $at.ToString('MM-dd HH:mm'), $h.state, $h.why) -ForegroundColor DarkGray
+    }
+    $log = Join-Path $script:ChatqLogDir "$($j.id).jsonl"
+    if (-not (Test-Path -LiteralPath $log)) { Write-Host '  no run yet'; Write-Host ''; return }
+    if ($Raw) { Get-Content -LiteralPath $log -Encoding UTF8; return }
+    Write-Host ''
+    foreach ($e in @(Get-ChatqLogEntries $j)) {
+        switch ($e.Type) {
+            'init' { Write-Host "  $($e.Text)" -ForegroundColor DarkGray }
+            'denied' { Write-Host "  ! denied $($e.Text)" -ForegroundColor Yellow }
+            'text' { Write-Host ''; Write-Host $e.Text }
+            'tool' { Write-Host "  > $($e.Text)" -ForegroundColor DarkGray }
+            'result' { Write-Host ''; Write-Host "  = $($e.Text)" -ForegroundColor DarkGray }
+            'error' { Write-Host "  ! $($e.Text)" -ForegroundColor Yellow }
+        }
+    }
+    Write-Host ''
+}
+
+function Test-ChatqCanAsk {
+    # Can this shell ask a question and have it answered at the keyboard?
+    # Not a hidden process, not -NonInteractive, not input from a pipe or a
+    # file, and never the watcher. $script:ChatqAskSeam (tests): $false for
+    # no, a scriptblock that answers for yes.
+    if ($null -ne $script:ChatqAskSeam) { return ($script:ChatqAskSeam -is [scriptblock]) }
+    try {
+        if ($env:CHATQ_WATCHER -eq '1' -or -not [Environment]::UserInteractive -or $Host.Name -ne 'ConsoleHost') { return $false }
+        if ([Console]::IsInputRedirected) { return $false }
+        if (@([Environment]::GetCommandLineArgs() | Where-Object { $_ -match '^[-/]noni' }).Count) { return $false }
+        return $true
+    }
+    catch { return $false }
+}
+
+function Wait-ChatqPairCandidates {
+    <#
+    chatnotify -Pair, after the pairing push went out: wait for the
+    phone's answer - until the pairing runs out - and put each one that
+    comes in to you, with its code, to confirm or not. The watcher is the
+    one reading the reply topic; this reads data/replies.json once a second.
+    Ctrl+C ends the wait and leaves the pairing open: chatnotify shows the
+    answers, chatnotify -Confirm takes one. Returns when a phone is paired
+    - here, or in the setup window meanwhile - or the pairing is over.
+    #>
+    param([datetime]$Until)
+    $asked = @{}
+    Write-Host '  waiting for the phone (Ctrl+C stops waiting; the pairing stays open)' -ForegroundColor DarkGray
+    while ((Get-Date) -lt $Until) {
+        $cfg = Get-ChatqConfig
+        $rc = Get-ChatqReplyConfig $cfg
+        if (-not $rc.PairId) {
+            if ($rc.Paired) { Write-Host "  paired - $($rc.Phone)" -ForegroundColor Green }
+            else { Write-Host '  the pairing is over - chatnotify -Pair starts another' -ForegroundColor Yellow }
+            return
+        }
+        foreach ($pc in @(Get-ChatqPairCandidates $cfg)) {
+            if ($asked.ContainsKey($pc.Id)) { continue }
+            $asked[$pc.Id] = $true
+            Write-Host "  $($pc.Label) answered - code $($pc.Code)" -ForegroundColor Cyan
+            $q = 'same code on the phone? (y/n)'
+            $a = if ($script:ChatqAskSeam -is [scriptblock]) { [string](& $script:ChatqAskSeam $q) } else { Read-Host "  $q" }
+            if ($a.Trim() -notmatch '^(y|yes)$') {
+                Write-Host '  not that one - still waiting (an answer you do not recognise is someone else''s)' -ForegroundColor DarkGray
+                continue
+            }
+            $cr = Confirm-ChatqPairCandidate -Id $pc.Id
+            if ($cr.Error) { Write-Host "  $($cr.Error)" -ForegroundColor Yellow; return }
+            Write-Host "  paired - $($cr.Label)$(if ($cr.Sent) { ' - a push says so on the phone' })" -ForegroundColor Green
+            return
+        }
+        if ($script:ChatqPairWaitSeam) { & $script:ChatqPairWaitSeam } else { Start-Sleep -Seconds 1 }   # tests
+    }
+    Write-Host '  the pairing ran out - chatnotify -Pair starts another' -ForegroundColor Yellow
+}
+
+function chatnotify {
+    <#
+    .SYNOPSIS
+    Phone alerts through Join (joaomgcd): started, needs input, done, failed.
+    .DESCRIPTION
+    Get the API key and device id from https://joinjoaomgcd.appspot.com (the
+    "Join API" button). -Device takes a device id, a group (group.phone,
+    group.android, group.all) or a device name. The key is DPAPI-protected on
+    Windows. Alerts always go to data/logs/alerts.log as well.
+
+    Paste the key itself rather than the whole push URL that page shows. A URL
+    pasted bare never reaches chatq at all - PowerShell stops at its first & -
+    and one in quotes has its key and device read out of it.
+
+    Tasker: a title is the chat's name after the event's mark, the text
+    leading with the event - or "<mark> Mk.5 <dot> <event>" when the text
+    names no chat - so a profile on the Join plugin's event can match only
+    "needs input" and "failed"; Join's group is "chatq".
+
+    ntfy instead of, or as well as, Join: -Ntfy <topic>. Anyone who knows the
+    topic can read the alerts, so treat it as a password - a long random one on
+    ntfy.sh, or your own server with -NtfyServer and -NtfyToken.
+
+    -Command runs your own PowerShell on every alert, with the alert in
+    $env:CHATQ_EVENT, CHATQ_TITLE, CHATQ_TEXT, CHATQ_PRIORITY, CHATQ_JOB and
+    CHATQ_PRESENT (1 while you are at the PC). A desktop toast is on unless
+    -Toast off. The phone stays quiet while you are at the PC - keyboard or
+    mouse used in the last -QuietMinutes (5; 0 turns that off). -Events keeps
+    all but the named events off the phone (done, failed, 'needs input',
+    started, limited, overloaded, waiting; all for every one).
+
+    -CommandLinks on gives your command the reply link as well, in
+    $env:CHATQ_LINK - for a Pushover or Telegram command when you have
+    neither Join nor ntfy over https. The command is then a phone channel:
+    it runs where the phone alerts go, quiet while you are at the PC (with
+    no link when an alert stops short of the phone), and the pairing push
+    can go through it. Off by default: chatq cannot tell where your command
+    sends the link.
+
+    Chats you run yourself - in VS Code or a terminal, not through chatq -
+    alert too, from the overlay (Windows): 'needs input' when one has waited
+    on you for 20 s, 'done' when one finished a turn, and only while you are
+    away from the PC for -QuietMinutes (never with 0) - whichever window is
+    in front, since away means nobody is looking at it. -LiveAlerts off
+    keeps the phone to what chatq runs.
+
+    Usage heads-ups: 'usage' alerts when a 5-hour or weekly window reaches
+    -UsageAt (90; up to three, 75, 90), from the overlay; and, from the
+    watcher, 10 minutes before a limit resets with prompts queued - the
+    phone's page offers Send now - and when it has. -UsageAlerts off,
+    -UsageReset off.
+
+    Quiet hours: -QuietHours 00:00-07:00 (this PC's clock) holds the
+    phone's alerts, except -Urgent (failed, unless named otherwise; none
+    for nothing), and sends them as one summary when the window ends. The
+    toast and your command still run; the command gets CHATQ_QUIET=1.
+    -QuietHours off sends what was held at once.
+
+    -Say 'needs input', failed: Join reads a short line aloud on the phone
+    for those events - through its speaker too, when no headphones are
+    in. -SayLanguage auto (Korean for a Hangul title), en, ko or another
+    code; none for nothing.
+
+    -Reply on: each phone alert carries a link to a page where you type the
+    next prompt for that chat - or allow edits, retry, skip, stop, ask for
+    the status - and the watcher picks it up. The phone is paired once first
+    (-Pair; -Reply on does it when none is): a push you tap on it, and the
+    page there makes a key that only that phone and this PC hold, and shows
+    a six-digit code. The same code comes up here - -Pair waits for it and
+    asks - and you confirm it (or later: -Confirm 123456); an answer whose
+    code you did not see on your phone is someone else's. Replies go
+    sealed with the key (AES and an HMAC) through a random ntfy.sh topic,
+    and no alert after the pairing push carries anything secret. A job a
+    reply queues or requeues runs in the chat's own mode, as at the PC;
+    -ReplyMaxMode <mode> caps it (and a Codex one at workspace-write),
+    -ReplyMaxMode keep lifts the cap again. -Pair again - or -Reply renew - pairs afresh: the phone paired
+    before stops working at once. -ReplyPage <https URL> serves the page
+    from a copy of your own: the page keeps the phone's key under its site,
+    and every <user>.github.io project page shares one. -Setup opens all of
+    this in a window (Windows); -Devices lists the devices on your Join
+    account.
+
+    -Permit on: a queued Claude run that meets a permission prompt asks the
+    phone - a push that names the chat and the kind of call, and a page
+    that shows the call itself, sealed for the phone - and waits
+    -PermitWait minutes (10) for Allow once or Deny. Off by default: it lets
+    the phone make a command run on this PC. -PermitTools names what the
+    phone may approve (default: Bash, PowerShell, Edit, Write, MultiEdit,
+    NotebookEdit, WebFetch; mcp__server__* for an MCP server's tools).
+
+    A chat you run yourself that asks a question (AskUserQuestion) shows it
+    on the board and its needs input alert's page, every option with its
+    description. -Ask on lets the phone answer it too: chatq adds a small
+    Claude Code hook, as the plugin chatq-ask, that holds the question for
+    the phone -AskWait minutes (240) while the PC's dialog stays open - the
+    first answer counts. -Manual prints the hook for your settings instead.
+
+    The page shows Claude's whole answer with done, needs input and failed
+    (-FullText off leaves the alert's excerpt only), and opened from a
+    bookmark it is the overlay on the phone - usage, every chat, the queue -
+    where you can queue to any chat, act on the queue, or start a chat in a
+    folder chatq knows (-Compose off turns that off; -NewMode sets the mode
+    a new one runs in, capped as replies are). The PC reads the phone while
+    an alert is out; -Listen always keeps a hidden PowerShell listening
+    while a phone is paired, asking ntfy.sh every 20 s.
+
+    chatqnotify is the old name, from when this only served chatq's queue,
+    and still works.
+    .EXAMPLE
+    chatnotify -Setup
+    .EXAMPLE
+    chatnotify -ApiKey 0123abcd... -Device group.phone
+    .EXAMPLE
+    chatnotify -Reply on
+    .EXAMPLE
+    chatnotify -Pair
+    .EXAMPLE
+    chatnotify -Confirm 123456
+    .EXAMPLE
+    chatnotify -Events done, failed, 'needs input'
+    .EXAMPLE
+    chatnotify -Ntfy chatq-7f3a9c1e2b
+    .EXAMPLE
+    chatnotify -Command 'Invoke-RestMethod https://example.com/hook -Method Post -Body $env:CHATQ_TEXT'
+    .EXAMPLE
+    chatnotify -CommandLinks on
+    .EXAMPLE
+    chatnotify -Test
+    .EXAMPLE
+    chatnotify -LiveAlerts off
+    .EXAMPLE
+    chatnotify -UsageAt 75, 90
+    .EXAMPLE
+    chatnotify -QuietHours 00:00-07:00 -Urgent failed, 'needs input'
+    .EXAMPLE
+    chatnotify -Say 'needs input', failed
+    .EXAMPLE
+    chatnotify -Permit on -PermitWait 15
+    .EXAMPLE
+    chatnotify -Ask on
+    #>
+    param(
+        [string]$ApiKey, [string]$Device, [switch]$Test, [switch]$Off,
+        [string]$Ntfy, [string]$NtfyServer, [string]$NtfyToken,
+        [string]$Command, [ValidateSet('on', 'off')][string]$CommandLinks, [ValidateSet('on', 'off')][string]$Toast, [int]$QuietMinutes = -1,
+        [switch]$Setup, [ValidateSet('on', 'off', 'renew')][string]$Reply, [string[]]$Events, [switch]$Devices, [switch]$Pair,
+        [string]$Confirm, [string]$ReplyPage, [ValidateSet('on', 'off')][string]$LiveAlerts,
+        [ValidateSet('on', 'off')][string]$UsageAlerts, [string[]]$UsageAt, [ValidateSet('on', 'off')][string]$UsageReset,
+        [string]$QuietHours, [string[]]$Urgent, [string[]]$Say, [string]$SayLanguage,
+        [ValidateSet('on', 'off')][string]$Permit, [string]$PermitWait, [string[]]$PermitTools,
+        [ValidateSet('on', 'off')][string]$Ask, [string]$AskWait, [switch]$Manual,
+        [ValidateSet('on', 'off')][string]$FullText, [ValidateSet('on', 'off')][string]$Compose, [ValidateSet('alerts', 'always')][string]$Listen, [string]$NewMode,
+        [string]$ReplyMaxMode
+    )
+    Set-StrictMode -Off
+    if ($PSBoundParameters.ContainsKey('Confirm')) {
+        $cr = Confirm-ChatqPairCandidate -Code $Confirm
+        if ($cr.Error) { Write-Host "  $($cr.Error)" -ForegroundColor Yellow; return }
+        Write-Host "  paired - $($cr.Label)$(if ($cr.Sent) { ' - a push says so on the phone' })" -ForegroundColor Green
+        return
+    }
+    if ($Setup) {
+        if ($script:ChatqIsWindows) { [void](Start-ChatqPhoneSetup); return }
+        Write-Host '  the setup window is Windows-only - the same from here:' -ForegroundColor Yellow
+        Write-Host '      chatnotify -ApiKey <key> -Device <device id | group.phone>   Join' -ForegroundColor Cyan
+        Write-Host '      chatnotify -Devices                                          the devices on that key' -ForegroundColor Cyan
+        Write-Host '      chatnotify -Reply on                                         answer alerts from the phone' -ForegroundColor Cyan
+        Write-Host '      chatnotify -Pair                                             pair the phone (again)' -ForegroundColor Cyan
+        Write-Host '      chatnotify -Confirm 123456                                   confirm the code the phone shows' -ForegroundColor Cyan
+        Write-Host "      chatnotify -Events done, failed, 'needs input'               what reaches the phone" -ForegroundColor Cyan
+        Write-Host '      chatnotify -QuietMinutes 5 / -Toast on / -Test' -ForegroundColor Cyan
+        Write-Host '      chatnotify -Ntfy <topic> [-NtfyServer <url>] / -Command <ps>   other channels' -ForegroundColor Cyan
+        Write-Host '      chatnotify -CommandLinks on|off                              the command carries the reply link' -ForegroundColor Cyan
+        Write-Host '      chatnotify -LiveAlerts on|off / -ReplyPage <https URL>' -ForegroundColor Cyan
+        Write-Host '      chatnotify -UsageAt 90 / -UsageReset on|off / -QuietHours 00:00-07:00 / -Say ''needs input''' -ForegroundColor Cyan
+        Write-Host '      chatnotify -Permit on|off [-PermitWait <min>]                 approve tool calls from the phone' -ForegroundColor Cyan
+        Write-Host '      chatnotify -Ask on|off [-AskWait <min>] [-Manual]              answer Claude''s questions from the phone' -ForegroundColor Cyan
+        Write-Host '      chatnotify -FullText on|off / -Compose on|off / -Listen alerts|always / -NewMode <mode>' -ForegroundColor Cyan
+        Write-Host '      chatnotify -ReplyMaxMode keep|<mode>                           the mode a phone reply runs in at most' -ForegroundColor Cyan
+        return
+    }
+    if ($Devices) {
+        # the key given (a pasted push URL too), else the one saved
+        $key = if ($ApiKey) { (ConvertFrom-ChatqJoinPaste $ApiKey).Key } else {
+            $c = Get-ChatqConfig
+            if ($c.PSObject.Properties['join'] -and $c.join) { Unprotect-ChatqSecret $c.join.apiKey }
+        }
+        if (-not $key) { Write-Host '  no Join key - chatnotify -Devices -ApiKey <key>, or save one first' -ForegroundColor Yellow; return }
+        $r = Get-ChatqJoinDevices $key
+        if ($r.Error) { Write-Host "  $($r.Error)" -ForegroundColor Yellow }
+        foreach ($dv in @($r.Devices)) {
+            $what = if ($dv.Model) { "$($dv.Name) ($($dv.Model))" } else { $dv.Name }
+            Write-Host ('  {0,-34} {1}' -f $dv.Id, $what) -ForegroundColor $(if ($dv.Type -eq 'group') { 'DarkGray' } else { 'Cyan' })
+        }
+        Write-Host '  chatnotify -Device <id> sends to that one' -ForegroundColor DarkGray
+        return
+    }
+    # the saving is shared with the setup window: Set-ChatqNotifyConfig
+    $ch = @{}
+    if ($Off) { $ch['Off'] = $true }
+    if ($QuietMinutes -ge 0) { $ch['QuietMinutes'] = $QuietMinutes }
+    # given at all, empty too: an empty -Command or -ReplyPage takes it away
+    foreach ($xn in 'Command', 'Events', 'ReplyPage', 'UsageAlerts', 'UsageAt', 'UsageReset', 'QuietHours', 'Urgent', 'Say', 'SayLanguage', 'PermitWait', 'PermitTools', 'AskWait') {
+        if ($PSBoundParameters.ContainsKey($xn)) { $ch[$xn] = $PSBoundParameters[$xn] }
+    }
+    # given and not empty. Ask: answering Claude's questions from the phone
+    # (src/ask.ps1). FullText, Compose, Listen, NewMode: the whole answer, the
+    # board and new chats, listening all the time. ReplyMaxMode: the phone's
+    # mode cap - keep (the chat's own) or a mode on the ladder
+    foreach ($xn in 'ApiKey', 'Device', 'Ntfy', 'NtfyServer', 'NtfyToken', 'CommandLinks', 'Toast', 'LiveAlerts', 'Permit', 'Ask', 'FullText', 'Compose', 'Listen', 'NewMode', 'ReplyMaxMode') {
+        if ($PSBoundParameters[$xn]) { $ch[$xn] = $PSBoundParameters[$xn] }
+    }
+    if ($Ask) { $ch['AskManual'] = [bool]$Manual }
+    # renew is what pairing afresh used to be called, and does the same
+    if ($Reply -eq 'renew') { $Pair = $true }
+    elseif ($Reply) { $ch['Reply'] = $Reply }
+    $res = Set-ChatqNotifyConfig $ch
+    foreach ($m in @($res.Messages)) { Write-Host "  $($m.Text)" -ForegroundColor $m.Color }
+    if ($res.Error -or $Off) { return }
+    $changed = $res.Changed
+    if ($Pair -or $res.NeedsPairing) {
+        $pr = Start-ChatqReplyPairing
+        foreach ($r in @($script:ChatqAlertReport)) { Write-Host "  $r" -ForegroundColor $(if ($r -match ': (sent|shown|ran)$') { 'Green' } else { 'Yellow' }) }
+        if ($pr.Error) { Write-Host "  pairing: $($pr.Error)" -ForegroundColor Yellow; return }
+        Write-Host "  pairing alert sent - tap it on the phone by $($pr.Until.ToString('HH:mm')), then Pair on the page that opens" -ForegroundColor Green
+        Write-Host '  a phone paired before no longer works' -ForegroundColor DarkGray
+        if (Test-ChatqCanAsk) { Wait-ChatqPairCandidates $pr.Until }
+        else { Write-Host '  the phone then shows a code: chatnotify -Confirm <that code> pairs it' -ForegroundColor DarkGray }
+        if (-not $Test) { return }
+    }
+    if ($Test -or $ApiKey -or $Ntfy) {
+        # -Loud: typed at the PC by definition, and meant for the phone anyway
+        $ok = Send-ChatqAlert 'test' "chatq reaches this device $($script:ChatqDot) $([Environment]::MachineName)" 1 -Loud
+        foreach ($r in @($script:ChatqAlertReport)) { Write-Host "  $r" -ForegroundColor $(if ($r -match ': (sent|shown|ran)$') { 'Green' } else { 'Yellow' }) }
+        if (Test-ChatqQuietIn (Get-ChatqConfig)) { Write-Host '  quiet hours now - only urgent alerts and tests go' -ForegroundColor DarkGray }
+        if ($ok) {
+            Write-Host '  check your phone' -ForegroundColor Green
+            if ((Get-ChatqReplyConfig).Links) { Write-Host '  tap it for the reply page - "Send a test reply" comes back here as a push' -ForegroundColor DarkGray }
+        }
+        return
+    }
+    if (-not $changed) {
+        $cfg = Get-ChatqConfig
+        $any = $false
+        if ($cfg.PSObject.Properties['join'] -and $cfg.join -and $cfg.join.apiKey) { $any = $true; Write-Host "  Join on $($script:ChatqDot) device $($cfg.join.device)" -ForegroundColor DarkGray }
+        if ($cfg.PSObject.Properties['ntfy'] -and $cfg.ntfy -and $cfg.ntfy.topic) { $any = $true; Write-Host "  ntfy on $($script:ChatqDot) $(if ($cfg.ntfy.server) { $cfg.ntfy.server } else { 'https://ntfy.sh' })" -ForegroundColor DarkGray }
+        if ($cfg.PSObject.Properties['command'] -and $cfg.command) { Write-Host "  command on$(if (Test-ChatqCommandLinks $cfg) { " $($script:ChatqDot) carries the reply link, as a phone channel" })" -ForegroundColor DarkGray }
+        $toastOn = -not ($cfg.PSObject.Properties['toast'] -and $cfg.toast -eq $false)
+        $qm = if ($cfg.PSObject.Properties['quietMinutes']) { [int]$cfg.quietMinutes } else { 5 }
+        Write-Host "  toast $(if ($toastOn) { 'on' } else { 'off' }) $($script:ChatqDot) phone quiet while at the PC: $(if ($qm) { "$qm min" } else { 'off' })" -ForegroundColor DarkGray
+        if ($cfg.PSObject.Properties['phoneEvents'] -and $null -ne $cfg.phoneEvents) {
+            Write-Host "  the phone gets: $(@($cfg.phoneEvents) -join ', ') (and tests and replies)" -ForegroundColor DarkGray
+        }
+        Write-Host "  chats you run yourself: $(Get-ChatqLiveAlertStatusText $cfg)" -ForegroundColor DarkGray
+        Write-ChatqNotifyExtrasStatus $cfg
+        $rst = Get-ChatqPhoneStatusText $cfg
+        Write-Host "  replies from the phone: $rst" -ForegroundColor DarkGray
+        if ($rst -eq 'not paired') { Write-Host '    chatnotify -Pair sends the pairing alert to tap' -ForegroundColor DarkGray }
+        # the answers to the pairing waiting: confirm the one whose code
+        # the phone shows
+        foreach ($pc in @(Get-ChatqPairCandidates $cfg)) {
+            Write-Host "    $($pc.Label) answered$(if ($pc.At) { " at $($pc.At.ToString('HH:mm'))" }) - code $($pc.Code)   chatnotify -Confirm $($pc.Digits)" -ForegroundColor Cyan
+        }
+        $rcs = Get-ChatqReplyConfig $cfg
+        if ($rcs.Wanted -and $rcs.MaxMode -ne $script:ChatqKeepMode) { Write-Host "    a reply runs a job in $($rcs.MaxMode) at most" -ForegroundColor DarkGray }
+        Write-Host "  permissions from the phone: $(Get-ChatqPermitStatusText $cfg)" -ForegroundColor DarkGray
+        Write-Host "  questions from the phone: $(Get-ChatqAskStatusText $cfg)" -ForegroundColor DarkGray
+        Write-ChatqBoardNotifyStatus $cfg
+        if ($any) { Write-Host '  chatnotify -Test sends one' -ForegroundColor DarkGray }
+        else {
+            Write-Host '  no phone alerts yet - Join or ntfy:' -ForegroundColor DarkGray
+            if ($script:ChatqIsWindows) { Write-Host '      chatnotify -Setup                                           all of it in a window' -ForegroundColor Cyan }
+            Write-Host '      chatnotify -ApiKey <key> -Device <device id | group.phone>   (https://joinjoaomgcd.appspot.com, Join API)' -ForegroundColor Cyan
+            Write-Host '        the key itself, not the push URL - PowerShell stops at the & in one unless it is quoted' -ForegroundColor DarkGray
+            Write-Host '      chatnotify -Ntfy <long random topic>                        (https://ntfy.sh, free)' -ForegroundColor Cyan
+        }
+    }
+}
+
+function Write-ChatqCheatSheet {
+    Write-Host ''
+    Write-Host '  chatq <title> [-Prompt s]   queue a prompt for that chat (no -Prompt: editor)' -ForegroundColor Cyan
+    Write-Host '  chatq <title> -Continue     queue "continue" for a chat the limit cut off' -ForegroundColor Cyan
+    Write-Host '  chatq -New <folder> [<name>] [-Prompt s]  queue a prompt for a new chat there (. = this folder)' -ForegroundColor Cyan
+    Write-Host '  chatq [<title>] -AutoContinue ask|on|off|never  what the limit cuts off: ask, continue by itself, or leave' -ForegroundColor Cyan
+    Write-Host '  chatq <n>                   open queued prompt n' -ForegroundColor Cyan
+    Write-Host '  chatqlist [-Board]          the queue; -Board = live board in VS Code' -ForegroundColor Cyan
+    Write-Host '  chatqrm <n> [-Force]        drop a job; -Force cancels a running one' -ForegroundColor Cyan
+    Write-Host '  chatqrun [<n>] [-Now]       requeue n / stop waiting and try now' -ForegroundColor Cyan
+    Write-Host '  chatqlog <n>                what a run did' -ForegroundColor Cyan
+    Write-Host '  chatnotify                  alerts: toast here, Join or ntfy on the phone' -ForegroundColor Cyan
+    Write-Host '  chatoverlay                     every open chat, the queue and usage, always on top' -ForegroundColor Cyan
+    Write-Host '  chatconsole                 all of the above in a window: write, drop files, new chats' -ForegroundColor Cyan
+    Write-Host ''
+    Write-Host '  -WhatIf shows the pick only   -Mode auto|acceptEdits|...   -At 13:00 / -In 2h' -ForegroundColor DarkGray
+    Write-Host '  -Sandbox read-only|workspace-write|danger-full-access   a Codex chat''s, in place of -Mode' -ForegroundColor DarkGray
+    Write-Host '  -Attach a.png, spec.pdf / -Paste   send files, a screenshot or the clipboard with it' -ForegroundColor DarkGray
+    Write-Host '  Tab fills in a title from any part of it, like chatrm: chatq card red<Tab>' -ForegroundColor DarkGray
+    Write-Host '  chat = every command, find and delete included' -ForegroundColor DarkGray
+    Write-Host "  Chat Session Agent Mk.5 $script:ChatVersion $($script:ChatqDot) $script:ChatqScriptPath" -ForegroundColor DarkGray
+}
+
+#endregion
