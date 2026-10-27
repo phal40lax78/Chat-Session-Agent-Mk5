@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.11.13 — Magenta on the Mac too
+
+0.11.12's release, which never shipped, with two fixes. The tag v0.11.12
+is there, but its publish stopped at the checks below, so it has no
+release and the Marketplace goes from 0.11.6 straight to this one.
+Everything in 0.11.12 is in it.
+
+- **The macOS panel's cut-off rows are magenta,** as the Windows
+  panel's have been since 0.11.11, which changed the Windows colours and
+  left the Mac's orange. The light look's follows its Windows one too.
+- **ctutils 0.4.4.** chatqd and the overlay now build with the fixed
+  version of a crate `hmac` and `sha2` use (RUSTSEC-2026-0385: code
+  meant to run in constant time could branch). The release check
+  refuses 0.4.3.
+- **`docs/sync-public.ps1` wraps its commit body** at 72, in two lines.
+
 ## 0.11.12 — The collector in Rust, in the shadow
 
 The second step of moving the overlay off PowerShell (native/SPEC.md §7,
