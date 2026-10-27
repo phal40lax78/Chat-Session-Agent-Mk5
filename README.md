@@ -2192,7 +2192,7 @@ What you pick in the settings box is kept in `config.json`, like a setting made 
 **Ctrl+Alt+Shift+O** or the tray icon's menu unlocks the whole panel to drag,
 not just its bar and its tiles: it gets a red edge (blue in the light look) and an open padlock marker at its foot, whose card says how to lock it, and it locks itself again two
 minutes after the pointer leaves. The tray icon is the skin's face - the
-default skin's shard (a glossy red cartridge, a gold trace, silver prongs; the extension's icon too), or the
+default skin's shard (a leaning red data shard with a cyan core, on a base plate; the extension's icon too), or the
 pack picked in the native panel's Skin menu: its `stills/tray.png`, else its tray still
 (`skin` in `data/overlay-state.json`; the WPF panel reads it as it starts) - with a dot at its bottom right in the
 colour of the most urgent chat, ringed in red in the dark look; its tooltip, starting `Mk.5:`, counts

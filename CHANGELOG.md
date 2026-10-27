@@ -1,10 +1,38 @@
 # Changelog
 
+## 0.11.15 — The registry check in any zone
+
+The first release since 0.11.6 to reach the Marketplace. v0.11.12 and
+v0.11.13 are tags whose publish stopped at the test gate, and 0.11.14
+was never tagged, so all three ship in this one.
+
+- **The `overlay-registry` vector holds in any time zone.** pwsh 7
+  reads a stamp with an offset, such as `+09:00`, as local time, so its
+  read cases answered as Korea's zone does and the self-test under pwsh
+  7 failed anywhere else; CI runs it in UTC. The generator now holds
+  those cases to Korea's zone, as its other cases hold theirs to a zone
+  of their own, and the Rust check reads them at +09:00. Nothing the
+  overlay does changes.
+
+## 0.11.14 — The new shard
+
+The tray logo and the extension's icon are redrawn.
+
+- **A new shard.** The tray logo and the extension's icon are now a
+  data shard in a cradle, leaning a little right, not the red cartridge
+  on the diagonal, which read as a pepper when small. Its red casing steps
+  right at a slanted kink, a cyan core runs down a dark window and
+  follows the kink, and it stands on a base plate with a cyan edge. It
+  is still drawn from code (`skins/tools/make_chip.py`), with no logo
+  and no third-party art. The extension's icon adds a white lane, gold
+  pads and the cradle's silver posts. The tray's sits left, clear of
+  the state dot.
+
 ## 0.11.13 — Magenta on the Mac too
 
 0.11.12's release, which never shipped, with two fixes. The tag v0.11.12
 is there, but its publish stopped at the checks below, so it has no
-release and the Marketplace goes from 0.11.6 straight to this one.
+release. (Nor has this one: see 0.11.15.)
 Everything in 0.11.12 is in it.
 
 - **The macOS panel's cut-off rows are magenta,** as the Windows
