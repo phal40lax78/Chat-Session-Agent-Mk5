@@ -9,10 +9,9 @@ PowerShell.
 
 [![marketplace](https://vsmarketplacebadges.dev/version-short/redaechan.charlie-and-the-chat-factory.svg)](https://marketplace.visualstudio.com/items?itemName=redaechan.charlie-and-the-chat-factory)
 [![release](https://img.shields.io/github/v/release/phal40lax78/Chat-Session-Agent-Mk5)](https://github.com/phal40lax78/Chat-Session-Agent-Mk5/releases)
-[![test](https://github.com/phal40lax78/Chat-Session-Agent-Mk5/actions/workflows/test.yml/badge.svg)](https://github.com/phal40lax78/Chat-Session-Agent-Mk5/actions/workflows/test.yml)
 [![licence](https://img.shields.io/github/license/phal40lax78/Chat-Session-Agent-Mk5)](LICENSE)
 [![PowerShell 5.1 | 7](https://img.shields.io/badge/PowerShell-5.1%20%7C%207-5391FE?logo=powershell&logoColor=white)](#requirements)
-[![sponsor: coming soon](https://img.shields.io/badge/sponsor-coming%20soon-lightgrey?logo=githubsponsors)](DEFERRED.md#sponsorship)
+![sponsor: coming soon](https://img.shields.io/badge/sponsor-coming%20soon-lightgrey?logo=githubsponsors)
 <a href="https://slint.dev"><img src="https://raw.githubusercontent.com/slint-ui/slint/master/logo/MadeWithSlint-logo-whitebg.png" alt="Made with Slint" height="20"></a>
 
 ![chatq queueing a prompt for a chat picked by its title, to be sent a minute after the five-hour limit resets](docs/demo-queue.svg)
@@ -886,7 +885,7 @@ While a job is due within 6 hours it keeps the machine from sleeping (the
 display still turns off, and a closed lid still sleeps a laptop).
 `chatqrun -Foreground` runs it in the console to watch.
 
-A native watcher, chatqd, is on its way ([native/SPEC.md](native/SPEC.md)),
+A native watcher, chatqd, is on its way (native/SPEC.md),
 and no build of it ships yet. A developer's build in
 `bin/<version>/<target>/` beside `data/`, or one `CHATQ_CHATQD` names, is
 started in the PowerShell watcher's place, and runs the queue itself: it
@@ -2322,7 +2321,7 @@ from that line, as `-Opacity` does; one out of range in the file is held
 to the range.
 
 **The panel in Rust.** On Windows the panel is `chatq-overlay.exe`,
-the same panel drawn in Rust and Slint ([native/SPEC.md](native/SPEC.md)
+the same panel drawn in Rust and Slint (native/SPEC.md
 8), in a process of its own beside the hidden PowerShell, which still
 collects the chats and carries out what you click. The console is drawn
 by a second Windows PowerShell, started when you open it and closed with
@@ -2356,12 +2355,24 @@ and the tray says so once. The next version tries native again;
 `chatoverlay -Panel native` clears the fuse now and restarts a running
 overlay onto it.
 
+**The collector in Rust, on trial.** `"host": "shadow"` under `overlay`
+in `config.json` (the default is `"ps"`), with the native panel, starts
+a third process beside the hidden PowerShell: `chatq-overlay.exe
+--shadow`, which collects the
+chats the same way in Rust every 2 seconds and only compares. The panel
+still shows what PowerShell collects. It writes two files and nothing
+else: `data/native/overlay-shadow.json`, the last comparison, and
+`data/logs/overlay-shadow.log`, its memory a minute and any difference
+that held two passes. It stops with the overlay. It is there to prove
+the Rust collector before it takes PowerShell's place; leave it off
+unless you want to help check it.
+
 **Skins and the Brain are on their way** for the native panel, and the
 panel loads neither yet. A skin pack - the mascot's faces, lines and
 voice - will go in `data/skins/<id>/` and come out by deleting that
-folder; its format is [docs/skin-pack.md](docs/skin-pack.md), and
+folder; its format is docs/skin-pack.md, and
 `skins/default/` is the plain one built in. The Brain,
-`chatq-brain.exe` in `data/brain/` ([native/brain/README.md](native/brain/README.md)),
+`chatq-brain.exe` in `data/brain/` (native/brain/README.md),
 asks Google's Gemini a few questions about a chat's last turns - did the
 assistant do more than asked, is a reply unread, is a prompt too thin -
 with your Gemini API key in `data/brain/gemini-key`, at about $0.17 per
@@ -2411,6 +2422,7 @@ chatoverlay -Recent 10            # ten chats not open under the rest; 0 for non
 | `copilotUsage` | `true` | `chatoverlay -CopilotUsage off`: no Copilot line, and `gh` never run for it |
 | `codexUsage` | `true` | `chatoverlay -CodexUsage off`: Codex's line only from its rollouts, and `codex app-server` never started for it |
 | `panel` | `native` | Windows: `chatq-overlay.exe` where it is staged ([the panel in Rust](#the-overlay)), the WPF panel where it is not or its fuse is blown; `ps` for the WPF panel always; anything else reads as `native`. `chatoverlay -Panel ps` |
+| `host` | `ps` | Windows, the native panel: `shadow` runs the collector in Rust beside PowerShell's, comparing only ([on trial](#the-overlay)); anything else reads as `ps` |
 | `usageSeconds` | 300 | how often usage is asked while a chat works - Codex's while Codex works (three times that while idle, and for Copilot); 60 at least |
 | `memoryWarn` | 95 | 0–99; the percent of Windows' commit limit in use at which the panel and the tray say memory runs short ([it says so](#the-overlay)); 0 for never |
 | `leakGB` | 2 | 0–64, parts of a GB too; how much one process grows in 10 minutes before the panel and the tray say it keeps growing, memory low or not ([it says so](#the-overlay)); 0 for never |
@@ -3254,7 +3266,7 @@ Claude settings first; it stops until you have.
 ## Sponsorship
 
 Not set up yet — the badge above is a placeholder. The options being weighed
-are in [DEFERRED.md](DEFERRED.md#sponsorship).
+are in DEFERRED.md.
 
 ## Licence
 

@@ -21,6 +21,9 @@ $script:ChatOverlayCardPath = Join-Path $script:ChatqData 'card.json'
 # tests: a stand-in start of the panel's process, given its exe and the
 # data folder; returns what stands for the process (Stop-ChatOverlayUi)
 $script:ChatOverlayUiSpawnSeam = $null
+# tests: the same for the shadow collector (Start-ChatOverlayShadow), given
+# its exe and the data folder
+$script:ChatOverlayShadowSpawnSeam = $null
 
 function Lock-ChatOverlay {
     # A few tries, not one: an overlay handing over to a newer copy lets go
@@ -437,6 +440,25 @@ function Stop-ChatOverlayUi {
     if (-not $Child) { return }
     try { if (-not $Child.HasExited) { $Child.StandardInput.Close() } } catch {}
     try { if (-not $Child.WaitForExit($WaitMs)) { $Child.Kill() } } catch {}
+}
+
+function Start-ChatOverlayShadow {
+    # The Rust collector beside this host (config.json overlay.host
+    # shadow): the panel's exe run as -UiExe --shadow "<data>", no window.
+    # It builds the snapshot's core every 2 s, compares it with
+    # overlay.json and writes only data/native/overlay-shadow.json and
+    # data/logs/overlay-shadow.log. Its stdin is a pipe this host holds,
+    # so it goes with the host, as the panel does (Stop-ChatOverlayUi).
+    param([string]$UiExe)
+    if ($script:ChatOverlayShadowSpawnSeam) { return (& $script:ChatOverlayShadowSpawnSeam $UiExe $script:ChatqData) }   # tests
+    $si = [System.Diagnostics.ProcessStartInfo]::new($UiExe)
+    # a trailing \ would escape the closing quote
+    $si.Arguments = '--shadow "' + ([string]$script:ChatqData).TrimEnd('\') + '"'
+    $si.UseShellExecute = $false
+    $si.RedirectStandardInput = $true
+    $si.CreateNoWindow = $true
+    $si.WorkingDirectory = $HOME
+    return [System.Diagnostics.Process]::Start($si)
 }
 
 function Resolve-ChatOverlayUiExe {
@@ -885,6 +907,9 @@ function New-ChatOverlayHeadlessState {
         # epoch ms (Start-ChatOverlayUi -Since); UiFail: why a start threw,
         # which blows the panel's fuse (Set-ChatOverlayPanelFuse)
         Child = $null; Starts = [System.Collections.Generic.List[datetime]]::new(); UiSince = 0; UnderWay = $false; Snap = $null; UiFail = $null
+        # the shadow collector's process, when config.json asks for it
+        # (Start-ChatOverlayShadow)
+        Shadow = $null
         # the console's process, once asked for (Start-ChatConsoleProcess),
         # its start, a show sent it not yet seen (ConWant), its last word
         # read (ConUi, console-ui.json) and the ids of the news it sent that
@@ -989,6 +1014,11 @@ function Start-ChatOverlayHeadlessHost {
             try { $H.Child = Start-ChatOverlayUi $UiExe $H.UiSince }
             catch { $H.UiFail = $_.Exception.Message; $why = 'panel' }
             $H.Starts.Add((Get-Date))
+        }
+        # the shadow: a start that fails is said and the host goes on
+        if (-not $why -and $ctx.Config -and $ctx.Config.host -eq 'shadow') {
+            try { $H.Shadow = Start-ChatOverlayShadow $UiExe; Write-ChatOverlayLog 'the shadow collector started' -Always }
+            catch { Write-ChatOverlayLog "the shadow collector did not start: $($_.Exception.Message)" -Always }
         }
         if (-not $why) {
             $why = Invoke-ChatOverlayCollectLoop $ctx -IntervalMs $IntervalMs -MaxCycles $MaxCycles -WakeMs 250 -OnCycle {
@@ -1132,6 +1162,7 @@ function Start-ChatOverlayHeadlessHost {
         # goes (Stop-ChatConsoleProcess)
         Stop-ChatConsoleProcess $H
         Stop-ChatOverlayUi $H.Child
+        Stop-ChatOverlayUi $H.Shadow 2000
         # the file's state, read now: the panel may have saved its place
         if ($why -in 'stop', 'close') { [void](Set-ChatOverlayClosed) }
         try { $lock.Dispose() } catch {}

@@ -25,3 +25,6 @@ design/
 venv/
 # Python's bytecode cache (skins/tools/make_default.py leaves one)
 __pycache__/
+
+# native builds staged beside the script (bin/<version>/<target>/)
+/bin/

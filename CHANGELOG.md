@@ -1,5 +1,58 @@
 # Changelog
 
+## 0.11.12 — The collector in Rust, in the shadow
+
+The second step of moving the overlay off PowerShell (native/SPEC.md §7,
+M9). The collector, the part of the overlay that reads what your chats
+are doing every 2 s, now has a Rust copy. It runs only if you ask for it,
+and it changes nothing: it builds its own snapshot beside the
+PowerShell one and writes down where the two differ.
+
+- **`"overlay": {"host": "shadow"}` in `data/config.json`** makes the
+  native panel's PowerShell host start `chatq-overlay.exe --shadow`
+  beside the panel. It closes with the host. Anything else, or no
+  `host`, is `ps`, the same as before. The WPF panel does not start it.
+- **It writes two files and nothing else.** It saves its snapshot and
+  the differences in `data/native/overlay-shadow.json` (through a `.tmp`
+  beside it, which a save that keeps failing can leave), and logs them
+  in `data/logs/overlay-shadow.log`. It takes no lock (not even the
+  watcher's), runs no command, and does nothing over the network. It
+  never changes a chat, the queue or `config.json`.
+- **What it covers:** the chats that are running and whether each is
+  still alive, VS Code's open tabs, what each chat said last, background
+  work, the queue and its times, the rows, Recent, the counts, reload
+  asks and the notes. Usage, cut-off chats, the reset ask, auto-continue
+  and memory come later. For those it takes PowerShell's own values, so
+  the comparison measures only what has been ported. The dots for unread
+  chats are ported but not compared: a click on the panel clears one in
+  the PowerShell host alone, out of the shadow's sight.
+- **A difference counts once it lasts two passes.** A chat that changes
+  between the two collectors' passes is not reported.
+- **It is small.** Over an hour of this PC's chats it held 4.7 MB
+  private at most, flat after its first 20 minutes, against 145 to 177
+  MB for the PowerShell host beside it. A pass takes about 10 ms, and
+  the one in five that reads the process table up to about 35 ms. The
+  log gives its memory and the minute's median and slowest pass once a
+  minute. Over the hour and 20 minutes more the two collectors never
+  differed (TESTING.md, "The shadow collector, the hour").
+- **A day on real use.** Run for 24 hours beside the live overlay, it
+  held 5.6 to 6.5 MB, 7.1 at most, and a pass took 11 to 20 ms in the
+  median hour. Every difference it logged but one ended within 28 s: a
+  chat seen changing a pass or two apart, or the PowerShell host
+  restarting onto new code (TESTING.md, "The shadow collector, the
+  day"). The one left, the panel's `ui` block, differed all day, as the
+  WPF host beside it never writes one.
+- **The repo is split.** github.com/phal40lax78/Chat-Session-Agent-Mk5
+  is public again with a fresh history: the one-line installer and what
+  it downloads, the phone's reply page, the README and its pictures, the
+  changelog, the licence and the extension's README. Everything else,
+  with the whole history, is in a private repo. The install line, the
+  reply page's address and the Join link are 0.11.11's. The old
+  addresses, under `Charlie-and-the-chat-factory`, now answer 404: an
+  alert from 0.11.10 or earlier opens no reply page, and their install
+  line no longer installs - use the one in the README. The README's test
+  badge, which named CI the public repo no longer runs, is removed.
+
 ## 0.11.11 — Chat Session Agent Mk.5
 
 A new name, a new dark look and a new icon. A skin pack can bring its
@@ -634,7 +687,7 @@ Nothing you run changes: the overlay loads neither yet.
 - **chatqd on macOS knows a binary named with `..` as the same one.**
   Off Windows Rust's `std::path::absolute` keeps `..`, where PowerShell's
   FullName drops it, so the preflight record could hold one binary twice;
-  [Identity.of](native/crates/chatq-core/src/launch.rs) now drops it by
+  Identity.of now drops it by
   text there, symlinks left alone. Windows names nothing differently.
   0.10.17's tag never published: this check failed on macOS.
 
@@ -2673,7 +2726,7 @@ version of the extension waits for the window's chats before it reloads.
   terminal session by itself, but not a chat whose tab was closed, a
   process chatq ended, or a PC that slept - and never says so on the phone.
   The spec, with how the two modes were fitted together, is
-  [docs/auto-continue-spec.md](docs/auto-continue-spec.md).
+  docs/auto-continue-spec.md.
 
 ### An update, and the chats a reload would stop
 

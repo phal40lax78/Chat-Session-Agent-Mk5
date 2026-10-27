@@ -110,6 +110,8 @@ function Get-ChatOverlayConfig {
     $theme = ([string](& $get 'theme' 'dark')).ToLowerInvariant()
     $view = ([string](& $get 'usageView' 'lines')).ToLowerInvariant()
     $panel = ([string](& $get 'panel' '')).ToLowerInvariant()
+    # not $host: that is PowerShell's own
+    $hostWord = ([string](& $get 'host' 'ps')).ToLowerInvariant()
     [pscustomobject]@{
         width        = [int](& $clamp ([int](& $get 'width' 380)) 260 800)
         maxRows      = [int](& $clamp ([int](& $get 'maxRows' 8)) 1 30)
@@ -174,6 +176,10 @@ function Get-ChatOverlayConfig {
         # whether config.json names the panel itself: a missing exe is said
         # in overlay.log only for a native asked for by name
         panelChosen  = [bool]($panel -in 'ps', 'native')
+        # ps, or shadow: the Rust collector run beside this one, which
+        # compares its snapshot with overlay.json and writes only its own
+        # two files (Start-ChatOverlayShadow). Anything else reads as ps.
+        host         = $(if ($hostWord -in 'ps', 'shadow') { $hostWord } else { 'ps' })
     }
 }
 
