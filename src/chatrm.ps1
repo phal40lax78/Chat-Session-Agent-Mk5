@@ -288,6 +288,7 @@ function Remove-ChatSession {
     return $true
 }
 
+# Deferred: DEFERRED.md "A deleted chat's tab: the ones left open"
 function Remove-ChatSessionById {
     <#
     chatrm for one Claude chat by its id, asked by a button rather than
@@ -300,19 +301,26 @@ function Remove-ChatSessionById {
     leaves the same reload request chatrm does while VS Code runs, with busy
     judged from -Live for the chat's folder, and the windows that had it as
     a tab asked to close it (Get-ChatCloseTabs).
+    -Archive puts the chat away instead (Save-ChatArchive, as chatarchive
+    does), the same refusals in the same order, "archive" in their words. An
+    idle chat open in a VS Code window is archived too, once a window names
+    its tab: the tab is asked to close with the reload request (kind
+    archived), as a delete's is. With no window naming it, the chat is kept,
+    since its tab cannot be closed and the window would write it back.
     #>
-    param([string]$SessionId, [string]$Cwd, [string]$Title, [string]$ConfigDir = $script:ChatClaudeHome, [object[]]$Live = @())
+    param([string]$SessionId, [string]$Cwd, [string]$Title, [string]$ConfigDir = $script:ChatClaudeHome, [object[]]$Live = @(), [switch]$Archive)
     $t = '"' + (Format-ChatTitle $Title 40) + '"'
     $say = { param($done, $text) [pscustomobject]@{ Done = $done; Say = $text } }
+    $verb = if ($Archive) { 'archive' } else { 'delete' }
     $mine = @($Live | Where-Object { $_ -and [string](Get-ChatField $_ 'SessionId') -eq $SessionId })
     # a print-mode claude stamps itself sdk-*: a queued prompt, or someone's
     # claude -p - which Claude Code 2.1.283 registers as interactive, so it
     # would read as a terminal below
     if (@($mine | Where-Object { [string](Get-ChatField $_ 'Entrypoint') -cin $script:ChatSdkEntrypoints }).Count) {
-        return (& $say $false "$t has a queued prompt running in it - delete it once that ends.")
+        return (& $say $false "$t has a queued prompt running in it - $verb it once that ends.")
     }
     if (@($mine | Where-Object { [string](Get-ChatField $_ 'Status') -in 'busy', 'waiting' }).Count -or (Test-ChatPrintLive $mine $SessionId)) {
-        return (& $say $false "$t is working - delete it once it finishes.")
+        return (& $say $false "$t is working - $verb it once it finishes.")
     }
     if (@($mine | Where-Object { $ep = [string](Get-ChatField $_ 'Entrypoint'); $ep -and $ep -ne 'claude-vscode' }).Count) {
         return (& $say $false "$t is open in a terminal - end it there first.")
@@ -327,10 +335,21 @@ function Remove-ChatSessionById {
     $hit = [pscustomobject]@{ Provider = 'claude'; File = $file; Record = $rec }
     if (Test-ChatJobsHold $hit 6>$null) {
         $nums = @(Get-ChatqJobs | Where-Object { $_.sessionId -eq $SessionId -and $_.state -in 'queued', 'running' } | ForEach-Object { "#$($_.seq)" }) -join ' '
-        return (& $say $false "$t has $nums queued for it - kept. chatrm -DropJobs drops them first.")
+        $drop = if ($Archive) { 'chatarchive' } else { 'chatrm' }
+        return (& $say $false "$t has $nums queued for it - kept. $drop -DropJobs drops them first.")
     }
     $tabs = @(Get-ChatCloseTabs $hit -ConfigHome $ConfigDir)
-    if (-not (Remove-ChatSession $hit 6>$null)) {
+    if ($Archive) {
+        # an open chat in a window that names no tab: its tab cannot be asked
+        # to close, and the window would write the chat back
+        if ($mine.Count -and -not $tabs.Count) {
+            return (& $say $false "$t is open in a VS Code window where its tab cannot be told apart - close it there, then archive it.")
+        }
+        if (-not (Save-ChatArchive $hit -Live $Live -Closing:([bool]$tabs.Count) 6>$null)) {
+            return (& $say $false "$t could not be archived - another process holds it, or it is archived already.")
+        }
+    }
+    elseif (-not (Remove-ChatSession $hit 6>$null)) {
         return (& $say $false "$t is held open by another process - nothing deleted.")
     }
     $procs = if ($script:ChatIsMac) { @('Electron', 'Code Helper*') } else { @('Code') }
@@ -340,9 +359,9 @@ function Remove-ChatSessionById {
                 $_ -and [string](Get-ChatField $_ 'SessionId') -ne $SessionId -and [string](Get-ChatField $_ 'Status') -in 'busy', 'waiting' -and
                 ([string](Get-ChatField $_ 'Cwd')).TrimEnd('\', '/') -eq $key
             }).Count
-        Write-ChatReloadRequest -Title $rec.Title -Cwd $Cwd -Kind deleted -Busy $busy -CloseTabs $tabs
+        Write-ChatReloadRequest -Title $rec.Title -Cwd $Cwd -Kind $(if ($Archive) { 'archived' } else { 'deleted' }) -Busy $busy -CloseTabs $tabs
     }
-    return (& $say $true "Deleted $t.")
+    return (& $say $true $(if ($Archive) { "Archived $t." } else { "Deleted $t." }))
 }
 
 #region archive and restore ---------------------------------------------------
@@ -369,8 +388,12 @@ function Move-ChatItem {
 }
 
 function Save-ChatArchive {
-    # $true when the chat was archived
-    param($Hit)
+    # $true when the chat was archived. -Live is the registry as the caller
+    # has it, else it is asked (Get-ChatqLiveSessions, which can take
+    # seconds). -Closing: the caller has asked the windows holding the chat
+    # to close its tab, so an idle chat open in a VS Code window goes too;
+    # one working, or open in a terminal, is kept all the same.
+    param($Hit, [object[]]$Live, [switch]$Closing)
     $title = $Hit.Record.Title
     if ($Hit.Provider -eq 'copilot') {
         Write-Host "  KEPT     $title" -ForegroundColor Yellow
@@ -381,7 +404,13 @@ function Save-ChatArchive {
     $id = $Hit.Record.Id
     # A chat still open in a window goes on writing to the path it came from,
     # which would leave half of it here and half in the archive.
-    if (@(Get-ChatqLiveSessions $env:CLAUDE_CONFIG_DIR | Where-Object { $_.SessionId -eq $id })) {
+    $reg = if ($PSBoundParameters.ContainsKey('Live')) { @($Live) } else { @(Get-ChatqLiveSessions $env:CLAUDE_CONFIG_DIR) }
+    $open = @($reg | Where-Object { $_ -and [string](Get-ChatField $_ 'SessionId') -eq $id })
+    $idle = -not @($open | Where-Object {
+            [string](Get-ChatField $_ 'Status') -in 'busy', 'waiting' -or
+            ([string](Get-ChatField $_ 'Entrypoint') -and [string](Get-ChatField $_ 'Entrypoint') -ne 'claude-vscode')
+        }).Count -and -not (Test-ChatPrintLive $open $id)
+    if ($open.Count -and -not ($Closing -and $idle)) {
         Write-Host "  KEPT     $title" -ForegroundColor Yellow
         Write-Host '           open in a VS Code window - close it there, or reload the window, then archive' -ForegroundColor DarkGray
         return $false
@@ -1742,9 +1771,7 @@ function Test-ChatIdle {
         $f = $byId[[string]$s.SessionId]
         if (-not $f) { continue }
         if ($s.Status -in 'busy', 'waiting') { return $false }
-        $since = [datetime]::MinValue
-        if ($s.StartedAt) { $since = [DateTimeOffset]::FromUnixTimeMilliseconds([int64]$s.StartedAt).LocalDateTime }
-        else { try { $since = (Get-Process -Id $s.Pid -EA Stop).StartTime } catch {} }
+        $since = Get-ChatqEntryStart $s
         # untouched since this process started: it has started nothing
         if ($f.LastWriteTime -lt $since) { continue }
         $skip = -not (Test-ChatPrintLive $sessions ([string]$s.SessionId))
@@ -1797,8 +1824,9 @@ function Write-ChatReloadRequest {
     # Left for the extension in extension/, if it is installed. Harmless when it
     # is not: an unread file in data/. The cwd is what lets each window decide
     # whether the delete was for its own workspace - so the background watcher
-    # passes the job's folder, never its own. Kind is 'deleted' for chatrm and
-    # 'ran' for a queued prompt that ran into a chat still open in a window.
+    # passes the job's folder, never its own. Kind is 'deleted' for chatrm,
+    # 'archived' for chatarchive and 'ran' for a queued prompt that ran into a
+    # chat still open in a window.
     # Busy is $true when a chat in the project was still working as the
     # request went out - the window then warns instead of offering a plain
     # Reload, and never reloads by itself. Away is $true when nobody had used
@@ -1819,10 +1847,10 @@ function Write-ChatReloadRequest {
     # of the run finds no window holding the chat - named anyway, so only the
     # window that closed its tab acts, and not every window on the folder.
     # -JobId: the run's job, which that window's live view of it is keyed by.
-    # -CloseTabs: on a delete, the windows that had a deleted chat as a tab,
-    # each asked to close it (Get-ChatCloseTabs); left out when there are
-    # none. sessionId and hostPids stay unset on a delete all the same, so
-    # the reload ask goes as it always did.
+    # -CloseTabs: on a delete or an archive, the windows that had the chat
+    # as a tab, each asked to close it (Get-ChatCloseTabs); left out when
+    # there are none. sessionId and hostPids stay unset on either all the
+    # same, so the reload ask goes as it always did.
     param([string]$Title, [string]$Cwd = (Get-Location).Path, [string]$Kind = 'deleted', $Busy = $null, $Away = $null,
         [string]$SessionId, [string]$ConfigHome, [string]$OldProcess, [int[]]$HostPids = @(), [string]$Transcript,
         [switch]$Auto, [int[]]$HandoverPids = @(), [string]$JobId, [object[]]$CloseTabs = @())
@@ -2208,7 +2236,8 @@ function Write-ChatGhostAdvice {
     # Said once, after a delete, and only while a window is up to do it. macOS
     # runs VS Code as Electron and 'Code Helper (...)', never a bare Code, so the
     # name has to differ per platform or the advice never prints there at all.
-    # -CloseTabs: the windows to close a deleted chat's tab in, passed on.
+    # -CloseTabs: the windows to close a deleted or archived chat's tab in,
+    # passed on.
     param([switch]$WaitForIdle, [switch]$AllProjects, [string]$Title, [string]$Kind = 'deleted', [object[]]$CloseTabs = @())
     $procs = if ($script:ChatIsMac) { @('Electron', 'Code Helper*') } else { @('Code') }
     if (-not @(Get-Process -Name $procs -EA SilentlyContinue).Count) { return }
@@ -2580,8 +2609,10 @@ function chatarchive {
     A Claude chat and its leftovers move to data/archive/, with a manifest of
     where each came from; a Codex thread goes through codex archive. Copilot
     chats have an archive of their own in VS Code. A chat at work is kept: a
-    Claude chat open in a window, a Codex thread written in the last minute
-    or with a turn that has not ended.
+    Claude chat working or open in a terminal, a Codex thread written in the
+    last minute or with a turn that has not ended. An idle Claude chat open
+    in a VS Code window is archived and its tab asked to close, as chatrm
+    does; where no window names its tab it is kept.
 
     Picks its chats as chatrm does: an id outright, a title by substring,
     shown in full and asked about when only part of it was typed, and Tab
@@ -2630,9 +2661,10 @@ function Invoke-ChatTake {
     # chatrm's body and chatarchive's, one path: ids or a title, the asking,
     # the jobs that hold a chat, the reload advice after. -Archive puts each
     # chat away (Save-ChatArchive) rather than deleting it (Remove-ChatSession).
-    # A delete asks the windows that had a Claude chat as a tab to close it
-    # (Get-ChatCloseTabs), read before it goes; an archive does not, as it
-    # keeps a chat open in a window anyway.
+    # Both ask the windows that had a Claude chat as a tab to close it
+    # (Get-ChatCloseTabs), read before it goes. An archive of a chat open in
+    # a window goes ahead only when a window names its tab, so there is one
+    # to close; with none, Save-ChatArchive keeps it.
     param([string[]]$Target, [string[]]$Provider, [switch]$Force, [switch]$AllProjects, [switch]$NoWait, [switch]$DropJobs, [switch]$Archive)
     Set-StrictMode -Off
     $cmd = if ($Archive) { 'chatarchive' } else { 'chatrm' }
@@ -2641,9 +2673,9 @@ function Invoke-ChatTake {
     # one step for both paths below: delete, or put away
     $take = {
         param($h)
-        if ($Archive) { return (Save-ChatArchive $h) }
         $t = @(Get-ChatCloseTabs $h)
-        $gone = Remove-ChatSession $h
+        if ($Archive) { $gone = Save-ChatArchive $h -Closing:([bool]$t.Count) }
+        else { $gone = Remove-ChatSession $h }
         if ($gone) { foreach ($e in $t) { $tabs.Add($e) } }
         return $gone
     }

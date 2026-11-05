@@ -540,8 +540,13 @@ function Get-ChatqHeldItems {
         if (-not $l.Trim()) { continue }
         $o = try { $l | ConvertFrom-Json } catch { $null }
         $n++
-        # by time, then the file's own order: two held in one second keep theirs
-        if ($o -and $o.event) { [pscustomobject]@{ Item = $o; At = [string](ConvertTo-ChatqDate $o.at).ToUniversalTime().ToString('o'); N = $n } }
+        # by time, then the file's own order: two held in one second keep theirs.
+        # An 'at' that does not read sorts first and stays in the list, as
+        # Get-ChatqHeldSummaryText shows it: --:--
+        if ($o -and $o.event) {
+            $when = ConvertTo-ChatqDate $o.at
+            [pscustomobject]@{ Item = $o; At = $(if ($when) { $when.ToUniversalTime().ToString('o') } else { '' }); N = $n }
+        }
     }
     return @($out | Sort-Object At, N | ForEach-Object { $_.Item })
 }

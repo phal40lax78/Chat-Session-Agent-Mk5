@@ -152,6 +152,18 @@ function chatinstall {
     Write-ChatCliReport
     if (-not $NoRestart) { Restart-ChatBackground }
 
+    # The overlay on Windows is the Rust exe alone, and a zip install brings
+    # none (the VSIX stages it before this runs, so it is silent there):
+    # say so now rather than leave an overlay that never appears
+    # Deferred: DEFERRED.md "The panel exe for install.ps1"
+    try {
+        if ($script:ChatqIsWindows -and -not (Get-ChatOverlayPanelExe)) {
+            Write-Host "    no overlay on this PC for $script:ChatVersion - there is no chatq-overlay.exe for it" -ForegroundColor Yellow
+            Write-Host "      $((Get-ChatOverlayPanelMissing $script:ChatVersion).Fix)" -ForegroundColor DarkGray
+        }
+    }
+    catch {}
+
     # The extension defaults to ~/Tools/Chat-Session-Agent-Mk5, or to the
     # folder from before 0.11.11 while that one holds the tool and the new one
     # does not exist (extension.js defaultFolder). Anywhere else needs the

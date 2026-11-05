@@ -810,15 +810,17 @@ function Save-ChatqAskAnswer {
 
 function Read-ChatqAskMarks {
     # key -> $true for every data/auto/<key><Ext>; markers over 8 days old -
-    # long past any cut-off still asked about - are deleted on the way
-    param([string]$Ext)
+    # long past any cut-off still asked about - are deleted on the way, or
+    # with -NoPrune only left out: the overlay's peek look (src/overlay-step.ps1)
+    # writes and deletes nothing
+    param([string]$Ext, [switch]$NoPrune)
     $out = @{}
     try {
         if (-not (Test-Path -LiteralPath $script:ChatqAutoDir)) { return $out }
         $old = (Get-Date).ToUniversalTime().AddDays(-8)
         foreach ($f in @(Get-ChildItem -LiteralPath $script:ChatqAutoDir -File -EA SilentlyContinue)) {
             if ($f.Extension -notin '.json', '.shown') { continue }
-            if ($f.LastWriteTimeUtc -lt $old) { Remove-Item -LiteralPath $f.FullName -Force -EA SilentlyContinue; continue }
+            if ($f.LastWriteTimeUtc -lt $old) { if (-not $NoPrune) { Remove-Item -LiteralPath $f.FullName -Force -EA SilentlyContinue }; continue }
             if ($f.Extension -eq $Ext -and $f.BaseName -cmatch '^[0-9A-Za-z-]+_[0-9A-Za-z-]+$') { $out[$f.BaseName] = $true }
         }
     }
@@ -827,14 +829,17 @@ function Read-ChatqAskMarks {
 }
 
 function Read-ChatqAskState {
-    # the cut-offs answered already: key -> $true. Never throws.
-    return (Read-ChatqAskMarks '.json')
+    # the cut-offs answered already: key -> $true. Never throws. -NoPrune:
+    # Read-ChatqAskMarks'
+    param([switch]$NoPrune)
+    return (Read-ChatqAskMarks '.json' -NoPrune:$NoPrune)
 }
 
 function Read-ChatqAskShown {
     # the cut-offs whose prompt was announced already - toast, notification,
     # phone - so an overlay restarted does not announce them again
-    return (Read-ChatqAskMarks '.shown')
+    param([switch]$NoPrune)
+    return (Read-ChatqAskMarks '.shown' -NoPrune:$NoPrune)
 }
 
 function Add-ChatqAskShown {
@@ -960,9 +965,9 @@ function Format-ChatqAskLeaveTip {
     param($Ask)
     $n = [int](Get-ChatField $Ask 'Count')
     $r = [int](Get-ChatField $Ask 'Restart')
-    if ($r -le 0) { return 'Leave them as they are - their rows stay magenta; Continue all in the console still continues them' }
+    if ($r -le 0) { return 'Leave them as they are - their rows stay red; Continue all in the console still continues them' }
     if ($r -ge $n) { return 'Leave them as they are - a chat a VS Code restart cut off is not offered again, and its row goes' }
-    return 'Leave them as they are - the limit''s keep their magenta rows, which Continue all in the console still continues; those a VS Code restart cut off are not offered again, and their rows go'
+    return 'Leave them as they are - the limit''s keep their red rows, which Continue all in the console still continues; those a VS Code restart cut off are not offered again, and their rows go'
 }
 
 function Format-ChatqContinueTip {

@@ -18,6 +18,9 @@
 # means it must not set $ErrorActionPreference or leave variables behind, and it
 # cannot wrap itself in & { }, which would dot-source into a scope about to go.
 #
+# A zip brings no overlay exe: on Windows the overlay needs the VS Code
+# extension or the release's chatq-overlay.exe, and chatinstall says so.
+#
 # Set CHAT_MANAGER_DIR beforehand to install somewhere other than
 # ~/Tools/Chat-Session-Agent-Mk5. Where that does not exist and the folder
 # from before 0.11.11, ~/Tools/Charlie-and-the-chat-factory, holds the tool,

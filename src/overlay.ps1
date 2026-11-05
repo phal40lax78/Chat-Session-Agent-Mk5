@@ -27,8 +27,8 @@ function Start-ChatOverlayAuto {
     The overlay started if it should be and is not running: what a new shell
     and every VS Code window (the extension, through setup.js) do as they
     open. Prints exactly one line for the caller to read - started, running,
-    off (not to start here, -AutoStart off, or closed by hand since this
-    sign-in) or failed - and nothing else, so the launch's own words are
+    off (not to start here, -AutoStart off, no chatq-overlay.exe for this
+    version, or closed by hand since this sign-in) or failed - and nothing else, so the launch's own words are
     kept off stdout. Those words say why a launch failed, so they go to
     overlay.log instead: nobody sees a shell's start or the extension's call.
     A close by hand is off rather than a word of its own: the extension
@@ -49,6 +49,9 @@ function Start-ChatOverlayAuto {
             $said = @($out | Where-Object { $_ -is [System.Management.Automation.InformationRecord] } | ForEach-Object { ([string]$_.MessageData).Trim() } | Where-Object { $_ })
             $ok = @($out | Where-Object { $_ -isnot [System.Management.Automation.InformationRecord] })
             if ($ok.Count -and $ok[-1] -eq $true) { $say = 'started' }
+            # no chatq-overlay.exe for this version: nothing to start, said
+            # once a version in overlay.log (Start-ChatOverlayProcess), not a failure
+            elseif ($script:ChatOverlayNoExe) { $say = 'off' }
             else { $why = if ($said.Count) { $said -join ' / ' } else { 'the launch gave no reason' } }
         }
     }
@@ -91,31 +94,40 @@ function Get-ChatOverlayLaunch {
     environment it needs, and a failure before the log function exists still
     reaches the log. CHATQ_OVERLAY marks the process as the overlay - no key
     bindings, no watches - and stays, for every process it starts to inherit;
-    CHATQ_ALLPARTS loads the parts only it draws from - the panel's, the
-    console's, the Mac's - and goes once they are in, so none of those loads
-    them too. -Open console: the console opens as it starts - a command left
-    for it now would be swept away as it takes its lock. -UiExe: the
-    headless host instead, its panel that exe (Start-ChatOverlayHeadlessHost),
-    with no CHATQ_ALLPARTS: it draws nothing of its own, so it loads the
-    collector's parts alone, as every other process does. -Console: the
-    headless host's console instead, in a process of its own
-    (Start-ChatConsoleHost) that loads every part, -HostPid the host that
-    starts it, -ConsoleOpen how it was asked for (show, or key: its hotkey).
+    CHATQ_ALLPARTS loads the parts only it draws from - the console's, the
+    Mac's - and goes once they are in, so none of those loads them too.
+    -Open console: the console opens as it starts - a command left for it
+    now would be swept away as it takes its lock. -Console: the Rust host's
+    console, in a process of its own (Start-ChatConsoleHost) that loads
+    every part, -HostPid the host that starts it, -ConsoleOpen how it was
+    asked for (show, or key: its hotkey). -Rust (with -UiExe, the exe): the
+    Rust host's start, watched - the command starts that exe first, before
+    anything is loaded, so it keeps the caller's environment and starts as
+    fast as ever, keeps its process, then loads the loader and runs
+    Watch-ChatOverlayRustStart, with no CHATQ_ALLPARTS: an exe that exits
+    before it takes the lock is a line in overlay.log. The process is hidden
+    and ends with the watch. Windows has no other start since 0.12.0;
+    without -Rust the entry is the Mac's.
     #>
     param([string]$Path = $script:ChatqScriptPath, [ValidateSet('', 'console')][string]$Open = '', [string]$UiExe = '',
-        [switch]$Console, [int]$HostPid = 0, [ValidateSet('show', 'key')][string]$ConsoleOpen = 'show')
+        [switch]$Console, [int]$HostPid = 0, [ValidateSet('show', 'key')][string]$ConsoleOpen = 'show', [switch]$Rust)
     $q = { param($s) "'" + [System.Management.Automation.Language.CodeGeneration]::EscapeSingleQuotedStringContent([string]$s) + "'" }
-    $pre = if ($UiExe -and -not $Console) { '$env:CHATQ_OVERLAY=''1''; ' } else { '$env:CHATQ_OVERLAY=''1''; $env:CHATQ_ALLPARTS=''1''; ' }
+    $first = ''
+    if ($Rust -and $UiExe -and -not $Console) {
+        $first = '$p = $null; try { $p = Start-Process -FilePath ' + (& $q $UiExe) + ' -ArgumentList ' + (& $q (Get-ChatOverlayRustArgs $Open)) +
+        ' -WindowStyle Hidden -WorkingDirectory ' + (& $q ([WildcardPattern]::Escape($HOME))) + ' -PassThru -EA Stop; $null = $p.Handle } catch { $p = $_.Exception.Message }; '
+    }
+    $pre = if ($first) { '$env:CHATQ_OVERLAY=''1''; ' } else { '$env:CHATQ_OVERLAY=''1''; $env:CHATQ_ALLPARTS=''1''; ' }
     foreach ($n in 'CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'CHATQ_CLAUDE', 'CHATQ_CODEX', 'CHATQ_GH') {
         $v = [Environment]::GetEnvironmentVariable($n)
         if ($v) { $pre += "`$env:$n=$(& $q $v); " }
     }
     $entry = if ($Console) { "[void](Start-ChatConsoleHost -HostPid $HostPid -Open '$ConsoleOpen')" }
-    elseif ($UiExe) { "[void](Start-ChatOverlayHeadlessHost -UiExe $(& $q $UiExe)$(if ($Open) { " -Open '$Open'" }))" }
-    elseif ($script:ChatqIsWindows) { "Start-ChatOverlayHost$(if ($Open) { " -Open '$Open'" })" } else { 'Start-ChatOverlayMacHost' }
+    elseif ($first) { "[void](Watch-ChatOverlayRustStart `$p -UiExe $(& $q $UiExe) -Open '$Open')" }
+    else { 'Start-ChatOverlayMacHost' }
     $log = Join-Path $script:ChatqLogDir 'overlay.log'
     $what = if ($Console) { 'console' } else { 'overlay' }
-    $cmd = $pre + "try { . $(& $q $Path); Remove-Item -LiteralPath 'env:CHATQ_ALLPARTS' -EA SilentlyContinue; $entry } catch { try { [void][IO.Directory]::CreateDirectory($(& $q $script:ChatqLogDir)); " +
+    $cmd = $first + $pre + "try { . $(& $q $Path); Remove-Item -LiteralPath 'env:CHATQ_ALLPARTS' -EA SilentlyContinue; $entry } catch { try { [void][IO.Directory]::CreateDirectory($(& $q $script:ChatqLogDir)); " +
     "[IO.File]::AppendAllText($(& $q $log), (Get-Date).ToString('o') + '  $what failed to start: ' + `$_.Exception.Message + [char]10) } catch {} }"
     $enc = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($cmd))
     if ($script:ChatqIsWindows) {
@@ -135,102 +147,215 @@ function Get-ChatOverlayPanelVersion {
 }
 
 # Deferred: DEFERRED.md "Signing chatq-overlay.exe"
-# Deferred: DEFERRED.md "The panel exe for install.ps1 and git users"
+# Deferred: DEFERRED.md "The panel exe for install.ps1"
 function Get-ChatOverlayPanelExe {
     <#
-    The native panel's exe when config.json asks for it - overlay.panel
-    native, the default since 0.11.1, or chatoverlay -Panel native:
-    chatq-overlay.exe staged beside the script under
-    bin/<version>/x86_64-pc-windows-msvc/, as the VSIX puts it there and
-    as chatqd is looked for (Get-ChatqNativePath) - the version the script
-    on disk says, so a restart onto new code starts the new code's panel.
-    '' for the WPF panel: ps asked for, off Windows, the panel's fuse blown
-    for this version (Get-ChatOverlayPanelFuse), or none staged - a zip or
-    git install, which has no bin/. A missing exe is said in overlay.log,
-    where it looked, only where config.json names native itself
-    (panelChosen) and not -Quiet: the default's miss is every zip and git
-    user's, at every start.
+    The overlay's exe on Windows: chatq-overlay.exe staged beside the script
+    under bin/<version>/x86_64-pc-windows-msvc/, as the VSIX puts it there
+    and as chatqd is looked for (Get-ChatqNativePath) - the version the
+    script on disk says, so a restart onto new code starts the new code's
+    exe. A git checkout's own build (Get-ChatOverlayPanelBuild) comes first
+    while its --version is that version and it is newer than the staged
+    one: the Overlay task builds it there, so a working-tree build never
+    sits in bin/ looking like the release. '' off Windows, or where
+    neither is there - Start-ChatOverlayProcess says so (Get-ChatOverlayPanelMissing).
     #>
-    param($Config = (Get-ChatOverlayConfig), [switch]$Quiet)
-    if (-not $script:ChatqIsWindows -or $Config.panel -ne 'native' -or -not $script:ChatRoot) { return '' }
-    $ver = Get-ChatOverlayPanelVersion
-    $fuse = Get-ChatOverlayPanelFuse $ver
-    if ($fuse) {
-        if (-not $Quiet) { Write-ChatOverlayLog "the native panel's fuse is blown for $ver ($($fuse.why)) - the WPF one until the next version or chatoverlay -Panel native" }
-        return ''
-    }
-    $exe = [System.IO.Path]::Combine([string]$script:ChatRoot, 'bin', $ver, 'x86_64-pc-windows-msvc', 'chatq-overlay.exe')
-    if ([System.IO.File]::Exists($exe)) { return $exe }
-    $chosen = $Config.PSObject.Properties['panelChosen'] -and $Config.panelChosen
-    if (-not $Quiet -and $chosen) { Write-ChatOverlayLog "the native panel asked for, but $exe is not there - the WPF one instead" -Always }
+    if (-not $script:ChatqIsWindows -or -not $script:ChatRoot) { return '' }
+    return (Find-ChatOverlayPanelExe $script:ChatRoot (Get-ChatOverlayPanelVersion))
+}
+
+function Find-ChatOverlayPanelExe {
+    # the panel's exe for -Version under -Root: the checkout's build
+    # while it says -Version and is newer than the one staged in bin/
+    # (the Overlay task builds the working tree there and stages nothing,
+    # so bin/ holds only what native/stage.ps1 staged), else the staged
+    # one, else ''. A start (Get-ChatOverlayPanelExe) and a restart onto
+    # new code (the Rust host's, through Start-ChatOverlayProcess) both
+    # ask here, so they agree.
+    param([string]$Root, [string]$Version)
+    $exe = [System.IO.Path]::Combine($Root, 'bin', $Version, 'x86_64-pc-windows-msvc', 'chatq-overlay.exe')
+    $build = Get-ChatOverlayPanelBuild $Root
+    $staged = [System.IO.File]::Exists($exe)
+    $newer = [System.IO.File]::Exists($build) -and (-not $staged -or [System.IO.File]::GetLastWriteTimeUtc($build) -gt [System.IO.File]::GetLastWriteTimeUtc($exe))
+    if ($newer -and (Get-ChatOverlayBuildVersion $build) -ceq $Version) { return $build }
+    if ($staged) { return $exe }
     return ''
 }
 
-function Get-ChatOverlayPanelFuse {
+function Get-ChatOverlayPanelBuild {
+    # where a git checkout's release build of the panel lands: cargo's own
+    # target folder for native/overlay, its workspace, built from the
+    # repo's root as TESTING.md S60 builds it but with no --target-dir
+    param([string]$Root = $script:ChatRoot)
+    return [System.IO.Path]::Combine([string]$Root, 'native', 'overlay', 'target', 'x86_64-pc-windows-msvc', 'release', 'chatq-overlay.exe')
+}
+
+function Get-ChatOverlayBuildVersion {
     <#
-    data/native/panel-fuse.json, where it names -Version: the native panel
-    failed under that version - its exe would not start, or it exited 3
-    times in 10 minutes (Start-ChatOverlayHeadlessHost) - so the WPF panel
-    stands in until a new version or chatoverlay -Panel native. Another
-    version's record counts for nothing, as chatqd's fuse.json
-    (Get-ChatqNativeFuse). $null when not blown.
+    The version chatq-overlay.exe at -Exe says it is, asked as
+    extension/build.js asks before it stages one: its one line,
+    chatq-overlay <version>. '' for no exe, any other line, or none in
+    10 s. Kept for the process by the exe's path, size and time written:
+    every start and restart looks (Get-ChatOverlayPanelExe), and a rebuild
+    in place is a new size or time, so asked again. One that did not end
+    in time, or would not start, is kept for a minute only: an antivirus'
+    first look at a new exe is slow or blocks it, and the linker may hold
+    it still, but a hung one must not stall every look by 10 s - the
+    restart onto new code asks too (Start-ChatOverlayProcess), so a hung
+    build holds that up by 10 s at most once a minute.
     #>
-    param([string]$Version = (Get-ChatOverlayPanelVersion))
-    $f = Read-ChatqJson (Get-ChatqNativeFile 'panel-fuse.json')
-    if ($f -and [string]$f.version -ceq $Version) { return $f }
-    return $null
-}
-
-function Set-ChatOverlayPanelFuse {
-    # the fuse blown for -Version, -Why kept; told: whether the WPF host
-    # that stands in has said so yet (Show-ChatOverlayPanelFuseNotice)
-    param([string]$Why, [string]$Version = (Get-ChatOverlayPanelVersion))
-    try { Save-ChatqJson (Get-ChatqNativeFile 'panel-fuse.json') ([ordered]@{ version = $Version; at = Get-ChatqStamp; why = $Why; told = $false }) }
-    catch { Write-ChatOverlayLog "panel fuse: $($_.Exception.Message)" }
-}
-
-function Clear-ChatOverlayPanelFuse {
-    # chatoverlay -Panel native: the native panel tried again
-    Remove-Item -LiteralPath (Get-ChatqNativeFile 'panel-fuse.json') -Force -EA SilentlyContinue
-}
-
-function Show-ChatOverlayPanelFuseNotice {
-    # Once a trip, from the WPF host that stands in for the native panel:
-    # the tray's balloon says why and how to try it again. The switch to
-    # native by default says nothing; only a trip is said.
-    param($H)
+    param([string]$Exe)
+    try { $fi = [System.IO.FileInfo]::new($Exe) } catch { return '' }
+    if (-not $fi.Exists) { return '' }
+    $key = "$($fi.FullName)|$($fi.Length)|$($fi.LastWriteTimeUtc.Ticks)"
+    if (-not $script:ChatOverlayBuildVersions) { $script:ChatOverlayBuildVersions = @{} }
+    $was = $script:ChatOverlayBuildVersions[$key]
+    if ($was -and [datetime]::UtcNow.Ticks -lt $was.Until) { return $was.V }
+    $said = ''
+    $done = $true
+    $p = $null
     try {
-        $f = Get-ChatOverlayPanelFuse
-        if (-not $f -or $f.told) { return }
-        Set-ChatqProp $f 'told' $true
-        Save-ChatqJson (Get-ChatqNativeFile 'panel-fuse.json') $f
-        Show-ChatOverlayBalloon $H "The native panel stopped ($($f.why)), so this is the WPF one until the next version. chatoverlay -Panel native tries it again." -Ms 10000
+        if ($script:ChatOverlayBuildVersionSeam) {
+            # tests: no real exe; $null stands for none in time
+            $r = & $script:ChatOverlayBuildVersionSeam $fi.FullName
+            if ($null -eq $r) { $done = $false } else { $said = [string]$r }
+        }
+        else {
+            $si = [System.Diagnostics.ProcessStartInfo]::new($fi.FullName, '--version')
+            $si.UseShellExecute = $false
+            $si.RedirectStandardOutput = $true
+            $si.CreateNoWindow = $true
+            $p = [System.Diagnostics.Process]::Start($si)
+            $out = $p.StandardOutput.ReadToEndAsync()
+            $done = $p.WaitForExit(10000)
+            if ($done) { $said = [string]$out.Result } else { try { $p.Kill() } catch {} }
+        }
     }
-    catch { Write-ChatOverlayLog "panel fuse notice: $($_.Exception.Message)" }
+    catch { $done = $false }
+    finally { if ($p) { $p.Dispose() } }
+    $v = if ($said.Trim() -match '^chatq-overlay (\d+\.\d+\.\d+)$') { $Matches[1] } else { '' }
+    $until = if ($done) { [datetime]::MaxValue.Ticks } else { [datetime]::UtcNow.AddMinutes(1).Ticks }
+    $script:ChatOverlayBuildVersions[$key] = [pscustomobject]@{ V = $v; Until = $until }
+    return $v
+}
+
+function Get-ChatOverlayPanelMissing {
+    <#
+    Why there is no overlay for -Version, and what to do: @{ Log; Fix }.
+    overlay.log's line, with the paths and what is there instead - other
+    versions' exes under bin/, the checkout's build
+    (Get-ChatOverlayPanelBuild) at another version, a bump nothing staged or
+    rebuilt for - and the what-to-do alone, for the shell: in a git checkout
+    the cargo build, else the VS Code extension or the exe's path, which is
+    all a zip install can do (DEFERRED.md "The panel exe for install.ps1").
+    #>
+    param([string]$Version)
+    $leaf = 'x86_64-pc-windows-msvc\chatq-overlay.exe'
+    $bin = Join-Path ([string]$script:ChatRoot) 'bin'
+    $want = Join-Path (Join-Path $bin $Version) $leaf
+    $others = @(Get-ChildItem -LiteralPath $bin -Directory -EA SilentlyContinue | Where-Object { $_.Name -cne $Version -and [System.IO.File]::Exists((Join-Path $_.FullName $leaf)) } | ForEach-Object { $_.Name })
+    $build = Get-ChatOverlayPanelBuild
+    $hasBuild = [System.IO.File]::Exists($build)
+    $built = if ($hasBuild) { Get-ChatOverlayBuildVersion $build } else { '' }
+    $cmd = 'cargo build --release --manifest-path native/overlay/Cargo.toml --config native/.cargo/config.toml --target x86_64-pc-windows-msvc'
+    $repo = [System.IO.File]::Exists([System.IO.Path]::Combine([string]$script:ChatRoot, 'native', 'overlay', 'Cargo.toml'))
+    $had = @()
+    if ($others.Count) { $had += "bin has $($others -join ', ')" }
+    if ($hasBuild) { $had += "$build is $(if ($built) { $built } else { 'no version it says' })" }
+    $fix = if ($repo) { "build it from $($script:ChatRoot): $cmd" } else { "install the VS Code extension, or put chatq-overlay.exe at $want" }
+    return [pscustomobject]@{
+        Log = "no overlay for $Version - $want is not there$(if ($had.Count) { " and $($had -join '; ')" }) - $fix"
+        Fix = $fix
+    }
+}
+
+function Clear-ChatOverlayHostFuse {
+    # chatoverlay started by name: the Rust host's unclean starts forgotten
+    # (host-starts.json), so a start asked for always tries - it would
+    # otherwise give up at once on the 3 it counted (native/overlay/collect/src/host)
+    Remove-Item -LiteralPath (Get-ChatqNativeFile 'host-starts.json') -Force -EA SilentlyContinue
+}
+
+function Write-ChatOverlayPsHostNote {
+    # Once a version, on Windows: config.json's overlay.host ps or shadow, its
+    # overlay.panel ps, or CHATQ_RUST_HOST=0 in the shell asks for
+    # PowerShell's host or the WPF panel, which are gone since 0.12.0 - the
+    # Rust host is the only one. A log line, not a balloon: nothing is
+    # wrong, and config.json (and its vector) stay as they are. The raw
+    # words, not Get-ChatOverlayConfig's, which read the default for none.
+    # data/native/host-ps-said.json keeps the version said, as
+    # panel-missing.json does.
+    try {
+        if (-not $script:ChatqIsWindows) { return }
+        $cfg = Get-ChatqConfig
+        $o = if ($cfg.PSObject.Properties['overlay'] -and $cfg.overlay) { $cfg.overlay } else { $null }
+        $ask = @()
+        if ($o -and $o.PSObject.Properties['host']) {
+            $w = ([string]$o.host).ToLowerInvariant()
+            if ($w -in 'ps', 'shadow') { $ask += "overlay.host $w" }
+        }
+        if ($o -and $o.PSObject.Properties['panel'] -and ([string]$o.panel).ToLowerInvariant() -eq 'ps') { $ask += 'overlay.panel ps' }
+        if ($env:CHATQ_RUST_HOST -eq '0') { $ask += 'CHATQ_RUST_HOST=0' }
+        if (-not $ask.Count) { return }
+        $path = Get-ChatqNativeFile 'host-ps-said.json'
+        $was = Read-ChatqJson $path
+        if ($was -and [string]$was.version -ceq [string]$script:ChatVersion) { return }
+        Save-ChatqJson $path ([ordered]@{ version = [string]$script:ChatVersion; at = Get-ChatqStamp })
+        Write-ChatOverlayLog "$($ask -join ', ') is ignored on Windows since 0.12.0 - the Rust host, chatq-overlay.exe, is the only host and panel here" -Always
+    }
+    catch { Write-ChatOverlayLog "host note: $($_.Exception.Message)" }
 }
 
 function Start-ChatOverlayProcess {
-    # just the launch; chatoverlay decides whether one is needed. -UiExe: the
-    # headless host's, which starts itself again so (Get-ChatOverlayLaunch);
-    # none given, the panel config.json asks for (Get-ChatOverlayPanelExe).
-    # -Wpf: the WPF panel whatever config.json asks for, with no look for an
-    # exe - the headless host's fall back once the panel's fuse blows
+    # just the launch; chatoverlay decides whether one is needed. On Windows
+    # the Rust host: chatq-overlay.exe (Get-ChatOverlayPanelExe) given --host
+    # and the data folder, -Open console as --open console, which takes the
+    # same lock - its restarts come back through here. Its start is watched
+    # until it holds the lock or exits (Get-ChatOverlayLaunch -Rust): this
+    # returns once the hidden watcher is spawned, never waiting for the
+    # watch, and an exe that dies first is a line in overlay.log. No exe for
+    # this version starts nothing: one line a version in overlay.log, the
+    # same at the shell, $false - and ChatOverlayNoExe, for
+    # Start-ChatOverlayAuto, which says off for it. On macOS the Mac host.
+    # -UiExe and -Wpf: ignored, there for the launch text of a copy older
+    # than 0.12.0 - the Rust host's restart sent -Wpf.
     param([string]$Open = '', [string]$UiExe = '', [switch]$Wpf)
-    if ($Wpf) { $UiExe = '' }
-    elseif (-not $UiExe) { $UiExe = Get-ChatOverlayPanelExe }
-    if ($script:ChatOverlaySpawn) { return (& $script:ChatOverlaySpawn $Open $UiExe) }   # tests: no real process
+    $script:ChatOverlayNoExe = $false
+    $exe = Get-ChatOverlayPanelExe
+    $kind = if ($script:ChatqIsWindows) { 'rust' } else { 'ps' }
+    if ($script:ChatOverlaySpawn) { return (& $script:ChatOverlaySpawn $Open $exe $kind) }   # tests: no real process
     if (-not $script:ChatqIsWindows -and -not $script:ChatIsMac) { return $false }
+    if ($script:ChatqIsWindows) {
+        Write-ChatOverlayPsHostNote
+        if (-not $exe) {
+            $script:ChatOverlayNoExe = $true
+            $ver = Get-ChatOverlayPanelVersion
+            $miss = Get-ChatOverlayPanelMissing $ver
+            try {
+                $said = Get-ChatqNativeFile 'panel-missing.json'
+                $was = Read-ChatqJson $said
+                if (-not ($was -and [string]$was.version -ceq $ver)) {
+                    Save-ChatqJson $said ([ordered]@{ version = $ver; at = Get-ChatqStamp })
+                    Write-ChatOverlayLog $miss.Log -Always
+                }
+            }
+            catch { Write-ChatOverlayLog "panel missing note: $($_.Exception.Message)" }
+            Write-Host "  cannot start the overlay: no chatq-overlay.exe for $ver - $($miss.Fix)" -ForegroundColor Yellow
+            return $false
+        }
+    }
     $path = $script:ChatqScriptPath
     if (-not $path -or -not (Test-Path -LiteralPath $path)) {
         Write-Host '  cannot start the overlay: this shell does not know where Chat-Session-Agent-Mk5.ps1 is' -ForegroundColor Yellow
         return $false
     }
-    $l = Get-ChatOverlayLaunch $path -Open $Open -UiExe $UiExe
+    $l = if ($script:ChatqIsWindows) { Get-ChatOverlayLaunch $path -Open $Open -UiExe $exe -Rust } else { Get-ChatOverlayLaunch $path -Open $Open }
     # in your home folder, never the caller's, escaped, and -EA Stop, for
     # the reasons in Start-ChatqWatcherProcess: the panel outlives the shell
     # or VS Code that started it, and every copy it restarts into
     $wd = [WildcardPattern]::Escape($HOME)
     try {
+        # the Rust host's too: the hidden PowerShell starts its exe and watches it
         if ($script:ChatqIsWindows) { Start-Process -FilePath $l.Exe -ArgumentList $l.Args -WindowStyle Hidden -WorkingDirectory $wd -EA Stop | Out-Null }
         else {
             New-ChatqDir $script:ChatqLogDir
@@ -244,6 +369,70 @@ function Start-ChatOverlayProcess {
         return $false
     }
     return $true
+}
+
+function Get-ChatOverlayRustArgs {
+    # the Rust host's command line: --host and the data folder, -Open console
+    # as --open console. A trailing \ would escape the closing quote.
+    param([string]$Open = '')
+    return '--host "' + ([string]$script:ChatqData).TrimEnd('\') + '"' + $(if ($Open) { " --open $Open" })
+}
+
+function Start-ChatOverlayRustExe {
+    # the Rust host's exe, hidden, in your home folder (as Start-ChatOverlayProcess
+    # starts a host): its process, or the message of a start that failed. Never throws.
+    param([string]$UiExe, [string]$Open = '')
+    if ($script:ChatOverlayRustSpawnSeam) { return (& $script:ChatOverlayRustSpawnSeam $UiExe $Open) }   # tests
+    try {
+        $p = Start-Process -FilePath $UiExe -ArgumentList (Get-ChatOverlayRustArgs $Open) -WindowStyle Hidden -WorkingDirectory ([WildcardPattern]::Escape($HOME)) -PassThru -EA Stop
+        $null = $p.Handle   # Windows PowerShell 5.1 keeps ExitCode only once the handle is taken
+        return $p
+    }
+    catch { return $_.Exception.Message }
+}
+
+function Wait-ChatOverlayRustStart {
+    <#
+    Watches the Rust host's start, -Proc (Start-ChatOverlayRustExe), until it
+    holds overlay.lock or ends: '' where the start is good, else why not.
+    Good: the lock is held (by it, or by a host already running); it exited 0,
+    in its own order (it found one running, or gave up on its own count of
+    unclean starts); or it exited otherwise after it had written its start
+    to host-starts.json - it took the lock and then died, which its own
+    count has. Not: it would not start, it exited before it took the lock (a
+    missing DLL, an early panic, a quarantine), or took none in -Ms, and is
+    then killed.
+    #>
+    param($Proc, [int]$Ms = $script:ChatOverlayRustWatchMs)
+    if ($Proc -is [string]) { return "it would not start: $Proc" }
+    $until = (Get-Date).AddMilliseconds($Ms)
+    while ($true) {
+        if (Test-ChatOverlayAlive) { return '' }
+        if ($Proc.HasExited) {
+            $code = [int]$Proc.ExitCode
+            if ($code -eq 0) { return '' }
+            $st = Read-ChatqJson (Get-ChatqNativeFile 'host-starts.json')
+            if ($st -and $st.PSObject.Properties['starts'] -and @($st.starts | Where-Object { [string]$_.pid -eq [string]$Proc.Id }).Count) { return '' }
+            return "it exited ($code) before it took the lock"
+        }
+        if ((Get-Date) -ge $until) { break }
+        Start-Sleep -Milliseconds 100
+    }
+    try { $Proc.Kill() } catch {}
+    return "it took no lock in $([Math]::Round($Ms / 1000, 1)) s"
+}
+
+function Watch-ChatOverlayRustStart {
+    # what the hidden watcher runs (Get-ChatOverlayLaunch -Rust): $true where
+    # the Rust host started; else a line in overlay.log - chatoverlay or the
+    # next shell tries again - and $false. -UiExe, -Open and -Fallback: ignored,
+    # there for the launch text of a copy older than 0.12.0, whose failed
+    # start fell back to PowerShell's host.
+    param($Proc, [string]$UiExe, [string]$Open = '', [switch]$Fallback)
+    $why = Wait-ChatOverlayRustStart $Proc
+    if (-not $why) { return $true }
+    Write-ChatOverlayLog "the Rust host did not start ($why) - chatoverlay tries again" -Always
+    return $false
 }
 
 function Stop-ChatOverlay {
@@ -270,12 +459,12 @@ function chatoverlay {
     sat idle, or how long until it resets or sends; its project and title
     are on the card a rest on it brings up. On macOS and with -Print its
     newest prompt is under it instead.
-    Chats the limit cut off are magenta, with when it resets; once it is
+    Chats the limit cut off are red, with when it resets; once it is
     over, the panel says how many it cut off and continues them if you say
     so (chatq -AutoContinue off only marks them). Queued prompts
     are rows too (purple), or ride on their chat's row when it is open. On
     Windows, a chat that finished a turn while you were elsewhere, since
-    you last opened it from the overlay, has a small dot, red in the dark
+    you last opened it from the overlay, has a small dot, cyan in the dark
     look and blue in the light - not one whose window was in front as it
     finished; macOS has no such dot, as it has no open chip to clear it.
     Under them, on Windows, a faint Recent list: the newest chats not open,
@@ -304,7 +493,13 @@ function chatoverlay {
     the tray menu unlocks the whole panel to drag; it locks again by itself
     two minutes after the pointer leaves. Windows and macOS (untested);
     elsewhere -Print shows the same in the console. charlie, its name from
-    0.10.11 to 0.11.10, still works.
+    0.10.11 to 0.11.10, still works. On Windows it is chatq-overlay.exe, the
+    Rust host and its panel in one process, which the VS Code extension puts
+    under bin/<version>/x86_64-pc-windows-msvc/ beside the script; a git
+    checkout with none there uses its own build, native\overlay\target\x86_64-pc-windows-msvc\release,
+    while that says this version. With neither (a zip install; a checkout
+    not rebuilt since a bump) there is no overlay, and overlay.log says what
+    to do. overlay.host and overlay.panel ps in config.json are ignored there.
     .PARAMETER Stop
     Close it.
     .PARAMETER Unlock
@@ -324,7 +519,7 @@ function chatoverlay {
     .PARAMETER LiveUsage
     off: show only Claude Code's own cached usage figure, and never ask the endpoint.
     .PARAMETER Theme
-    dark (the default: black, hot red and neon green), light, or system - following the OS's own light or dark setting.
+    dark (the default: blue-black, cyan and gold), light, or system - following the OS's own light or dark setting.
     .PARAMETER Opacity
     How opaque the panel is, 0.3 to 1 - or as a percent, 30 to 100.
     .PARAMETER Width
@@ -338,7 +533,7 @@ function chatoverlay {
     .PARAMETER Recent
     How many of the newest chats not open are listed under the open ones: 0 to 20, 5 by default; 0 is no Recent list.
     .PARAMETER Console
-    Open the console: pick a chat, write to it, drop files on it, send it next or queue it; the queue beside it. It opens in the panel's own place, grown from its top-right corner; Esc, its back button or the console hotkey return it to the panel. With the native panel it is a window of its own, a couple of seconds to open, that closes as it returns. Starts the overlay if it is not running. Windows only.
+    Open the console: pick a chat, write to it, drop files on it, send it next or queue it; the queue beside it. It opens in the panel's own place, grown from its top-right corner; Esc, its back button or the console hotkey return it to the panel. It is a window of its own, a couple of seconds to open, that closes as it returns. Starts the overlay if it is not running. Windows only.
     .PARAMETER ConsoleHotkey
     The key that opens the console: Ctrl+Alt+Shift+Q by default, none for no key.
     .PARAMETER UsageView
@@ -347,8 +542,8 @@ function chatoverlay {
     off: no Copilot line, and gh is never run for it.
     .PARAMETER CodexUsage
     off: Codex's line only from what Codex wrote on its last run, and codex app-server is never started for it.
-    .PARAMETER Panel
-    Windows' panel: native (the default) - chatq-overlay.exe, drawn in a process of its own, which the VS Code extension puts under bin/<version>/x86_64-pc-windows-msvc/ beside the script - or ps, the WPF one. Native falls back to the WPF one where no exe is there (a zip or git install) or where it failed under this version; -Panel native tries it again. A running overlay starts again on the one chosen.
+    .PARAMETER HostCheck
+    on: on Windows, a PowerShell checker runs beside the Rust host, about 130 MB while it does, and data/logs/overlay-check.log says what differs. off (the default): none. A running overlay starts again on the one chosen.
     .EXAMPLE
     chatoverlay
     .EXAMPLE
@@ -380,7 +575,7 @@ function chatoverlay {
         [ValidateSet('lines', 'bars')][string]$UsageView,
         [ValidateSet('on', 'off')][string]$CopilotUsage,
         [ValidateSet('on', 'off')][string]$CodexUsage,
-        [ValidateSet('ps', 'native')][string]$Panel
+        [ValidateSet('on', 'off')][string]$HostCheck
     )
     Set-StrictMode -Off
     if ($Print) { Write-ChatOverlayPrint; return }
@@ -411,16 +606,8 @@ function chatoverlay {
     if ($UsageView) { $set.usageView = $UsageView.ToLowerInvariant() }
     if ($CopilotUsage) { $set.copilotUsage = ($CopilotUsage -eq 'on') }
     if ($CodexUsage) { $set.codexUsage = ($CodexUsage -eq 'on') }
-    # the panel's engine: a running overlay is restarted onto a new one, as
-    # a reload keeps the one it has
-    # - and native asked for by name tries a panel whose fuse blew again,
-    # as a change of panel: the running overlay is the WPF one meanwhile
-    $fuseWas = $false
-    if ($Panel) {
-        $panelWas = (Get-ChatOverlayConfig).panel
-        $set.panel = $Panel.ToLowerInvariant()
-        if ($set.panel -eq 'native' -and (Get-ChatOverlayPanelFuse)) { $fuseWas = $true; Clear-ChatOverlayPanelFuse }
-    }
+    # a check day: read by the Rust host at its start only
+    if ($HostCheck) { $set.hostCheck = ($HostCheck -eq 'on') }
     # compact is prompts off: the name from when full rows showed the prompt
     # everywhere - on macOS and in -Print they still do; the Windows panel's
     # row is its tile alone whichever (Add-ChatOverlayTileRow)
@@ -476,19 +663,14 @@ function chatoverlay {
         if ($set.ContainsKey('usageView')) { Write-Host "  usage as $($set.usageView)$(if ($script:ChatqIsWindows) { ' - for -Print; the panel draws a thin bar a window' })" -ForegroundColor Green }
         if ($set.ContainsKey('copilotUsage')) { Write-Host "  Copilot usage: $CopilotUsage$(if ($CopilotUsage -eq 'on') { ' - through the GitHub CLI, gh, when it is logged in' })" -ForegroundColor Green }
         if ($set.ContainsKey('codexUsage')) { Write-Host "  Codex usage asked live: $CodexUsage$(if ($CodexUsage -eq 'on') { ' - through codex app-server, no turn spent' } else { ' - from what Codex wrote on its last run only' })" -ForegroundColor Green }
-        $noExe = $false
-        if ($set.ContainsKey('panel')) {
-            Write-Host "  panel: $(if ($set.panel -eq 'native') { 'native, chatq-overlay.exe' } else { 'ps, the WPF one' })$(if (-not $script:ChatqIsWindows) { ' - for Windows' })" -ForegroundColor Green
-            if ($fuseWas) { Write-Host '  the native panel''s fuse is cleared - it is tried again' -ForegroundColor Green }
-            $noExe = $set.panel -eq 'native' -and -not (Get-ChatOverlayPanelExe -Quiet)
-            if ($noExe -and $script:ChatqIsWindows) {
-                Write-Host "  no chatq-overlay.exe under bin\$(Get-ChatqLoaderVersion $script:ChatqScriptPath)\x86_64-pc-windows-msvc beside the script - the WPF panel until one is there" -ForegroundColor Yellow
-            }
+        if ($set.ContainsKey('hostCheck')) {
+            Write-Host "  host check: $HostCheck - $(if ($set.hostCheck) { 'a PowerShell checker beside the Rust host, about 130 MB while it runs' } else { 'none' })" -ForegroundColor Green
+            if (-not $script:ChatqIsWindows) { Write-Host '  for the Rust host - Windows only' -ForegroundColor Yellow }
         }
-        # a panel switch restarts the overlay onto the other panel - but not
-        # native with none staged (or off Windows): the restart would come
-        # back as the WPF panel it already is, so that one is only a reload
-        if ($alive) { Send-ChatOverlayCommand $(if ($set.ContainsKey('panel') -and ($set.panel -ne $panelWas -or $fuseWas) -and -not $noExe) { 'restart' } else { 'reload' }) }
+        # a check day is read by the Rust host at its start only, so a
+        # running one starts again onto it; every other setting is a reload
+        $restart = $set.ContainsKey('hostCheck') -and $script:ChatqIsWindows
+        if ($alive) { Send-ChatOverlayCommand $(if ($restart) { 'restart' } else { 'reload' }) }
     }
     $verbs = @()
     if ($Unlock) { $verbs += 'unlock' }
@@ -499,7 +681,8 @@ function chatoverlay {
     if ($verbs) {
         if ($alive) { foreach ($v in $verbs) { Send-ChatOverlayCommand $v } }
         else {
-            # not running: left the way the next start will read it
+            # not running: left the way the next start will read it (the
+            # native panel has no lock and ignores -Lock and -Unlock)
             $st = Read-ChatOverlayState
             if ($Unlock) { $st.locked = $false }
             if ($Lock) { $st.locked = $true }
@@ -549,6 +732,9 @@ function chatoverlay {
         # starts too, but a start that fails should not leave it
         $st = Read-ChatOverlayState
         if ($st.hidden -or $null -ne $st.closedSignIn) { $st.hidden = $false; $st.closedSignIn = $null; Save-ChatOverlayState $st }
+        # and the Rust host's count of unclean starts: asked for by name, it
+        # always tries (host-starts.json)
+        Clear-ChatOverlayHostFuse
         if (-not (Start-ChatOverlayProcess)) { return }
         $up = $false
         for ($i = 0; $i -lt 40 -and -not $up; $i++) { Start-Sleep -Milliseconds 250; $up = Test-ChatOverlayAlive }
@@ -559,7 +745,8 @@ function chatoverlay {
         Write-Host '  overlay started - top right of the main screen' -ForegroundColor Green
         if ($script:ChatIsMac) { Write-Host '  macOS support is untested - TESTING.md lists what to check' -ForegroundColor DarkGray }
     }
-    if ($script:ChatqIsWindows) { Write-Host '  clicks go through it - point at it for its edges, to resize it, and its buttons: move, collapse, refresh, console, settings, hide, close' -ForegroundColor DarkGray }
+    # the Rust host's panel has no lock: it takes every click
+    if ($script:ChatqIsWindows) { Write-Host '  drag its frame to move it, swipe a chat sideways and click its bin to delete it; its bar collapses, hides and closes it' -ForegroundColor DarkGray }
     else { Write-Host '  clicks go through it - the CQ menu bar item unlocks it to drag' -ForegroundColor DarkGray }
     # what comes back by itself, as config.json has it now
     # a close kept until the next sign-in is Windows' alone: a Mac's

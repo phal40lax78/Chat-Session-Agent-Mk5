@@ -229,7 +229,10 @@ function Send-ChatqAlert {
     try {
         New-ChatqDir $script:ChatqLogDir
         $line = "{0}`t{1}`t{2}" -f (Get-Date).ToString('o'), $Event, ($Text -replace '\s+', ' ')
-        [System.IO.File]::AppendAllText((Join-Path $script:ChatqLogDir 'alerts.log'), $line + "`n", (New-Object System.Text.UTF8Encoding $false))
+        $alertLog = Join-Path $script:ChatqLogDir 'alerts.log'
+        # rolled to alerts.log.1 past 1 MB, as Add-ChatqLogLine rolls the rest
+        if ((Test-Path -LiteralPath $alertLog) -and (Get-Item -LiteralPath $alertLog).Length -gt 1MB) { Move-Item -LiteralPath $alertLog -Destination "$alertLog.1" -Force }
+        [System.IO.File]::AppendAllText($alertLog, $line + "`n", (New-Object System.Text.UTF8Encoding $false))
     }
     catch {}
     $cfg = Get-ChatqConfig

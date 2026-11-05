@@ -12,7 +12,7 @@
 <meta name="robots" content="noindex">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#f4f5f7" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#170a10" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#0a0c10" media="(prefers-color-scheme: dark)">
 <!-- an empty icon, so the browser does not ask the host for /favicon.ico -->
 <link rel="icon" href="data:,">
 <title>chatq reply</title>
@@ -24,9 +24,9 @@
 }
 @media (prefers-color-scheme: dark) {
     :root {
-        --bg: #170a10; --card: #23101a; --fg: #f2e8dc; --muted: #b3a19f; --line: #5a4630;
-        --accent: #ff4fb4; --accent-fg: #1a0b12; --ok: #5fd08a; --warn: #f2b14c; --bad: #ff7b7f;
-        --ok-bg: #16281d; --warn-bg: #2d2412; --bad-bg: #331a1c; --wait-bg: #2b1220;
+        --bg: #0a0c10; --card: #0c1618; --fg: #c4e6e2; --muted: #8fb0ac; --line: #2e4a4a;
+        --accent: #fff850; --accent-fg: #0a0c10; --ok: #3fd99a; --warn: #f0b537; --bad: #ff5d54;
+        --ok-bg: #0d2a22; --warn-bg: #2a2410; --bad-bg: #2c1414; --wait-bg: #14201f;
     }
 }
 [hidden] { display: none !important; }
@@ -104,9 +104,10 @@ textarea.sent { color: var(--muted); }
 }
 .more button[data-armed="1"] { border-color: var(--bad); color: var(--bad); font-weight: 600; }
 .primary {
-    width: 100%; min-height: 56px; padding: 10px 16px; border: 0; border-radius: 16px;
+    width: 100%; min-height: 56px; padding: 10px 16px; border: 0; border-radius: 0;
     font: inherit; font-size: 18px; font-weight: 650;
     background: var(--accent); color: var(--accent-fg);
+    clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));
 }
 button { cursor: pointer; touch-action: manipulation; }
 button:active:not(:disabled) { transform: scale(.98); }
@@ -168,18 +169,33 @@ button:disabled { opacity: .45; cursor: default; }
 .broken h1 { font-size: 21px; margin: 0 0 10px; }
 .broken p { margin: 0 auto; color: var(--muted); line-height: 1.5; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-/* The board: the overlay on the phone, in the overlay's own colours -
-   amber waiting on you, green working, orange cut off, purple queued, grey
-   idle, faint recent. Read at a glance on a 390 px screen: one column, the
-   title first, the state on the right, what to tap the whole row. */
+/* The board: the overlay's quest tracker on the phone. A row is a quest: a
+   badge for its state (--q-*), the folder as the yellow header line, the
+   title the objective, the age at the right; its corners are cut, not
+   rounded. Read at a glance on a 390 px screen: one column, what to tap the
+   whole row. The colours of a section: amber waiting on you, green working,
+   orange cut off, purple queued, grey idle, faint recent. */
 :root {
     --amber: #a86200; --green: #177a3b; --orange: #c2410c; --purple: #6446cc; --idle: #7a818c;
-    --row: #ffffff; --soft: #eceef2; --bar: #d8dce3;
+    --row: #ffffff; --soft: #eceef2; --bar: #d8dce3; --rline: transparent;
+    /* the quest badge: fill and its '!', the red box, the green one, the dim
+       one; the project line and the age keep the page's own muted ink */
+    --q-fill: var(--amber); --q-on: #ffffff; --q-red: var(--bad); --q-grn: var(--ok); --q-dim: var(--idle);
+    --q-proj: var(--muted); --q-age: var(--muted);
+    /* the game's phone bubbles: Claude's (received) and the sent one's */
+    --m-fill: var(--card); --m-edge: var(--line); --m-ink: var(--fg);
+    --s-fill: #e4ecfb; --s-edge: var(--accent); --s-ink: var(--fg);
+    /* the HUD's titles: condensed, the system's own - none loaded */
+    --hud: "Bahnschrift SemiCondensed", Bahnschrift, "Roboto Condensed", "Arial Narrow", system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
 }
 @media (prefers-color-scheme: dark) {
     :root {
-        --amber: #f2b14c; --green: #5fd08a; --orange: #ff8f57; --purple: #b39cff; --idle: #8d949f;
-        --row: #23101a; --soft: #2e1822; --bar: #3a2530;
+        --amber: #f0b537; --green: #3fd99a; --orange: #ff5d54; --purple: #8cc4d4; --idle: #7c918f;
+        --row: #0b1a1c; --soft: #12262a; --bar: #1c3034; --rline: rgba(110, 156, 152, .3);
+        --q-fill: #fff850; --q-on: #800000; --q-red: #ff5d54; --q-grn: #64ffb9; --q-dim: #6e9c98;
+        --q-proj: #fff850; --q-age: #ff5d54;
+        --m-fill: #0a1618; --m-edge: #6e9c98; --m-ink: #c4e6e2;
+        --s-fill: #143129; --s-edge: #3fd99a; --s-ink: #7df2be;
     }
 }
 .board, .chat {
@@ -196,7 +212,7 @@ button:disabled { opacity: .45; cursor: default; }
     border: 1px solid var(--line); background: var(--card); color: var(--fg);
 }
 .linkish { border-color: transparent; background: transparent; color: var(--accent); padding: 4px 6px; }
-.usage { display: grid; grid-template-columns: max-content max-content minmax(3rem, 1fr) max-content; gap: 3px 8px; align-items: center; font-size: 13px; }
+#bUsage { display: grid; grid-template-columns: max-content max-content minmax(3rem, 1fr) max-content; gap: 3px 8px; align-items: center; font-size: 13px; }
 .usage .un { font-weight: 650; }
 .usage .uw { color: var(--muted); }
 .usage .ur { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -215,11 +231,32 @@ button:disabled { opacity: .45; cursor: default; }
     background: var(--card); color: var(--fg); font: inherit; font-size: 16px;
 }
 .blist { display: flex; flex-direction: column; gap: 6px; flex: 1 1 auto; }
-.shead { margin: 10px 2px 0; font-size: 12px; font-weight: 750; letter-spacing: .07em; text-transform: uppercase; color: var(--c, var(--muted)); }
-.row {
-    display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 10px 12px 10px 10px; text-align: left;
-    border: 0; border-left: 4px solid var(--c, var(--idle)); border-radius: 12px; background: var(--row); color: var(--fg); font: inherit;
+/* a HUD header: capitals, spaced out, a small diamond before it and a rule
+   fading out after it, all drawn here - no image */
+.shead {
+    display: flex; align-items: center; gap: 8px; margin: 10px 2px 0; font-size: 12px; font-weight: 750;
+    letter-spacing: .14em; text-transform: uppercase; color: var(--c, var(--muted));
 }
+.shead::before { content: ""; flex: 0 0 auto; width: 6px; height: 6px; border: 1px solid currentColor; transform: rotate(45deg); }
+.shead::after { content: ""; flex: 1 1 auto; height: 1px; background: linear-gradient(to right, currentColor, transparent); opacity: .45; }
+.row {
+    display: flex; align-items: flex-start; gap: 9px; width: 100%; padding: 10px 14px 10px 10px; text-align: left;
+    border: 0; border-left: 3px solid var(--c, var(--idle)); border-radius: 0; background: var(--row); color: var(--fg); font: inherit;
+    box-shadow: inset 0 0 0 1px var(--rline);
+    clip-path: polygon(0 0, calc(100% - 7px) 0, 100% 7px, 100% 100%, 7px 100%, 0 calc(100% - 7px));
+}
+/* the quest badge, a box: yellow with a '!' for work in progress, an empty
+   red one for what waits on you or was cut off, green with a tick when done,
+   dim and empty for the rest */
+.qb {
+    flex: 0 0 auto; position: relative; width: 15px; height: 15px; margin-top: 2px;
+    border: 2px solid var(--q-dim); font: 800 11px/11px var(--hud); text-align: center; color: var(--q-on);
+}
+.qb[data-sign="work"] { border-color: var(--q-fill); background: var(--q-fill); }
+.qb[data-sign="red"] { border-color: var(--q-red); }
+.qb[data-sign="done"] { border-color: var(--q-grn); background: var(--q-grn); }
+.qb[data-sign="done"]::after { content: ""; position: absolute; left: 3px; top: 0; width: 3px; height: 7px; border: solid var(--q-on); border-width: 0 2px 2px 0; transform: rotate(40deg); }
+.rj { font: 700 11px/1.2 var(--hud); font-stretch: condensed; letter-spacing: .12em; text-transform: uppercase; color: var(--q-proj); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 [data-sec="waiting"] { --c: var(--amber); }
 [data-sec="working"] { --c: var(--green); }
 [data-sec="cut"] { --c: var(--orange); }
@@ -240,7 +277,7 @@ button:disabled { opacity: .45; cursor: default; }
 .rs { font-size: 13px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rp { font-size: 13px; color: var(--muted); font-style: italic; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rr { flex: 0 0 auto; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; max-width: 45%; }
-.ra { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.ra { font-size: 12px; color: var(--q-age); font-variant-numeric: tabular-nums; }
 .tag {
     display: inline-block; max-width: 100%; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 650; line-height: 1.35;
     background: var(--soft); color: var(--tc, var(--muted)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -249,18 +286,40 @@ button:disabled { opacity: .45; cursor: default; }
 .tag[data-tone="working"] { --tc: var(--green); }
 .tag[data-tone="queue"] { --tc: var(--purple); }
 .tag[data-tone="bad"] { --tc: var(--bad); }
-.skel { height: 58px; border-radius: 12px; background: var(--soft); }
+.skel { height: 58px; border-radius: 0; background: var(--soft); clip-path: polygon(0 0, calc(100% - 7px) 0, 100% 7px, 100% 100%, 7px 100%, 0 calc(100% - 7px)); }
 .bmore, .bempty { margin: 6px 2px; font-size: 13px; color: var(--muted); }
 .bcard { display: flex; flex-direction: column; gap: 10px; padding: 16px; border-radius: 14px; background: var(--card); border: 1px solid var(--line); margin-top: 8px; }
 .bcard h2 { margin: 0; font-size: 19px; }
 .bcard p { margin: 0; line-height: 1.5; color: var(--muted); }
 .bfoot { position: sticky; bottom: 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 0 2px; background: var(--bg); border-top: 1px solid var(--line); }
-.bfoot .newchat { min-height: 44px; padding: 8px 14px; border: 0; border-radius: 12px; background: var(--accent); color: var(--accent-fg); font: inherit; font-weight: 650; }
+.bfoot .newchat {
+    min-height: 44px; padding: 8px 16px; border: 0; border-radius: 0; background: var(--accent); color: var(--accent-fg); font: inherit; font-weight: 650;
+    clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 8px 100%, 0 calc(100% - 8px));
+}
 .blisten { flex: 1 1 auto; font-size: 12px; color: var(--muted); text-align: right; }
 .back { align-self: flex-start; }
 .cline { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 14px; color: var(--muted); }
 .mchip { padding: 2px 9px; border-radius: 999px; background: var(--soft); color: var(--fg); font-size: 12px; font-weight: 650; }
-.cprompt { margin: 0; padding: 8px 10px; border-left: 3px solid var(--line); color: var(--muted); font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
+/* The game's phone bubbles (the overlay's msg_bubble): corners cut, never
+   rounded, a small tail at the foot - at the left for Claude's, at the
+   right for the sent one. The outline is the element's own colour, the fill
+   a layer 1px in (::before), both clipped to one polygon; the foot of the
+   box is the tail's height, the body ends above it. */
+.msg {
+    --t: 4px; --poly: polygon(2px 0, calc(100% - 2px) 0, 100% 2px, 100% calc(100% - var(--t) - 6px), calc(100% - 6px) calc(100% - var(--t)), 5px calc(100% - var(--t)), 0 100%, 0 2px);
+    position: relative; z-index: 0; width: fit-content; max-width: 86%; margin: 0 0 8px; padding: 7px 10px calc(7px + var(--t));
+    background: var(--m-edge); color: var(--m-ink); clip-path: var(--poly);
+}
+.msg::before { content: ""; position: absolute; z-index: -1; top: 1px; right: 1px; bottom: 1px; left: 1px; background: var(--m-fill); clip-path: var(--poly); }
+.msg.sent {
+    --poly: polygon(2px 0, calc(100% - 2px) 0, 100% 2px, 100% 100%, calc(100% - 5px) calc(100% - var(--t)), 6px calc(100% - var(--t)), 0 calc(100% - var(--t) - 6px), 0 2px);
+    margin-left: auto; background: var(--s-edge); color: var(--s-ink);
+}
+.msg.sent::before { background: var(--s-fill); }
+/* "CLAUDE - 14:02", "YOU": the speaker above a message, in the game's caps */
+.who { margin: 0 0 4px; font: 700 10.5px/1.1 var(--hud); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.who.you { align-self: flex-end; text-align: right; margin-bottom: -4px; }
+.cprompt { align-self: flex-end; margin: 0 0 8px; font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .name { width: 100%; min-height: 44px; padding: 8px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--card); color: var(--fg); font: inherit; font-size: 16px; }
 .chat .compose { min-height: 7rem; }
 #bStatusText, #cStatusText { white-space: pre-line; }
@@ -278,6 +337,7 @@ button:disabled { opacity: .45; cursor: default; }
 .answer.full .abody { max-height: none; -webkit-mask-image: none; mask-image: none; }
 .abody p { margin: 0 0 8px; }
 .abody .ah { font-weight: 700; }
+.msg > :last-child { margin-bottom: 0; }
 .abody pre { margin: 0 0 8px; padding: 8px 10px; border-radius: 8px; background: var(--soft); overflow-x: auto; white-space: pre; font: 13px/1.45 ui-monospace, "Cascadia Mono", "SF Mono", Consolas, Menlo, monospace; }
 .abody code { padding: 0 3px; border-radius: 4px; background: var(--soft); font-family: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, Menlo, monospace; font-size: .92em; }
 .abody pre code { padding: 0; background: transparent; }
@@ -325,15 +385,21 @@ button:disabled { opacity: .45; cursor: default; }
     .answer .aone { display: block; }
     .bhead .usage, .bfoot .blisten { display: none; }
 }
-/* The dark look is Mk.5's, as the overlay's: near-black, gold hairlines
-   (--line), a pink accent, serif headings - the system's own, none loaded -
-   and a small gold flourish under the board's header, an inline SVG
-   (img-src data:). Last, so it wins over the rules above. */
+/* The dark look is the game's HUD, as the overlay's quest tracker and its
+   phone: near-black, panels a dark teal, yellow for the headers and the
+   accent, HUD red for the age and what is cut off, mint for what works, thin
+   teal-grey lines, and titles in a condensed system face (--hud) - none
+   loaded. Messages and rows take the palette through the variables above;
+   the light look keeps its colours and has the shapes alone. Last, so it
+   wins over the rules above. */
 @media (prefers-color-scheme: dark) {
-    .title, .card h1, .bhost, .bcard h2, .broken h1 { font-family: Didot, Baskerville, Georgia, Constantia, "Noto Serif KR", "Apple SD Gothic Neo", serif; }
-    .bhost { font-size: 15.5px; }
-    .shead[data-sec="recent"], .shead[data-sec="older"] { color: var(--muted); }
-    .bhead { background: var(--bg) url(data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2064%208%27%3E%3Cpath%20d%3D%27M32%20.5%2035.5%204%2032%207.5%2028.5%204z%27%20fill%3D%27%23B09A6C%27%2F%3E%3Cpath%20d%3D%27M2%203.5h23M7%205.5h18M39%203.5h23M39%205.5h18%27%20stroke%3D%27%23B09A6C%27%20fill%3D%27none%27%2F%3E%3C%2Fsvg%3E) no-repeat 50% 100% / 64px 8px; }
+    .title, .card h1, .bhost, .bcard h2, .broken h1, .shead, .akick, .ahead .al { font-family: var(--hud); font-stretch: condensed; }
+    .title, .card h1, .bcard h2, .broken h1 { letter-spacing: .02em; }
+    .shead { color: var(--q-proj); }
+    .shead::before { background: var(--c, var(--q-proj)); border-color: var(--c, var(--q-proj)); }
+    .akick { color: var(--q-proj); }
+    .primary[data-armed="1"] { color: #0a0c10; }
+    .bhead { border-bottom-color: rgba(255, 248, 80, .35); }
 }
 </style>
 </head>
@@ -418,7 +484,8 @@ button:disabled { opacity: .45; cursor: default; }
     <h1 id="cTitle" class="title"></h1>
     <p id="cMeta" class="meta"></p>
     <div class="cline"><span id="cMode" class="mchip"></span><span id="cState"></span></div>
-    <p id="cPrompt" class="cprompt" hidden></p>
+    <p id="cWho" class="who you" hidden>YOU</p>
+    <p id="cPrompt" class="cprompt msg sent" hidden></p>
     <div id="cAsk" class="ask" hidden></div>
     <div id="cAnswer" class="answer" hidden></div>
     <label for="cSearch" class="sr">Search folders</label>
@@ -1276,8 +1343,9 @@ var ChatqBoard = (function () {
     // The parts of a turn as blocks: text as markdown, a tool as one muted
     // line, three or more tools in a row folded into one that opens on a
     // tap, a note (a limit, a 529) warn-coloured
-    function answerModel(parts) {
+    function answerModel(parts, text) {
         var out = [], run = [];
+        text = text || mdBlocks;
         var tools = function () {
             if (run.length >= 3) out.push({ t: 'tools', items: run.slice() });
             else run.forEach(function (s) { out.push({ t: 'tool', s: s }); });
@@ -1288,11 +1356,30 @@ var ChatqBoard = (function () {
             if (p.t === 'tool') { run.push(p.s); return; }
             tools();
             if (p.t === 'note') out.push({ t: 'note', s: p.s });
-            else out = out.concat(mdBlocks(p.s));
+            else out = out.concat(text(p.s));
         });
         tools();
         return out;
     }
+    // One text part as Claude's messages, the game's phone way: each
+    // paragraph its own bubble, a heading in the bubble of the block right
+    // after it (a heading with nothing after it, its own), a fence or a
+    // table whole in one bubble, never split. A part with no blocks makes
+    // none. { t: 'msg', blocks } each, the blocks as mdBlocks makes them.
+    function bubblesOf(s) {
+        var out = [], heads = [];
+        mdBlocks(s).forEach(function (k) {
+            if (k.t === 'h') { heads.push(k); return; }
+            out.push({ t: 'msg', blocks: heads.concat([k]) });
+            heads = [];
+        });
+        if (heads.length) out.push({ t: 'msg', blocks: heads });
+        return out;
+    }
+    // The turn as the phone draws it: answerModel's tools and notes, folded
+    // as there, sitting between the bubbles of its text parts - the split
+    // is per part, so a heading never joins a paragraph of the next part.
+    function bubbleModel(parts) { return answerModel(parts, bubblesOf); }
     // what Copy copies
     function answerText(parts) {
         return (parts || []).filter(function (p) { return p && typeof p.s === 'string'; })
@@ -1359,30 +1446,34 @@ var ChatqBoard = (function () {
             j.s === 'needs-input' ? 'needs you' : j.s === 'running' ? 'running' : j.s;
         return { text: '#' + j.n + ' ' + what, tone: toneOf(j.s) };
     }
-    // one row, as words: { title, sub, prompt, age, chips, dot }
+    // The quest badge a section's rows wear, as the overlay's tracker has
+    // it: working a yellow square with a '!', waiting on you and cut off a
+    // red empty box, recent a green box with a tick, the rest a dim empty box
+    function rowSign(sec) {
+        return sec === 'working' ? 'work' : sec === 'waiting' || sec === 'cut' ? 'red' : sec === 'recent' ? 'done' : 'dim';
+    }
+    // one row, as words: { title, proj, sub, prompt, age, chips, dot } - proj
+    // the folder, the quest's header line above the title
     function rowView(type, r, nowMs) {
-        var sub = [], chips = [];
+        var sub = [], chips = [], proj = r.f || '';
         if (type === 'queue') {
-            if (r.f) sub.push(r.f);
             if (r.p) sub.push(r.p);
             if (r.k === 'continue') sub.push('continue');
-            return { title: '#' + r.n + ' ' + (r.t || ''), sub: sub.join(DOT), prompt: '', age: '', chips: [{ text: r.e || r.s, tone: toneOf(r.s) }], dot: '' };
+            return { title: '#' + r.n + ' ' + (r.t || ''), proj: proj, sub: sub.join(DOT), prompt: '', age: '', chips: [{ text: r.e || r.s, tone: toneOf(r.s) }], dot: '' };
         }
         if (type === 'older') {
-            if (r.f) sub.push(r.f);
             if (r.p && r.p !== 'claude') sub.push(r.p);
             if (r.live) sub.push(r.live === 'waiting' ? 'waiting on you' : r.live === 'busy' ? 'working' : 'open');
             if (r.ni) chips.push({ text: '#' + r.ni + ' needs you', tone: 'waiting' });
             if (r.q) chips.push({ text: r.q + ' queued', tone: 'queue' });
-            return { title: r.t || '', sub: sub.join(DOT), prompt: '', age: ageText(r.age, nowMs), chips: chips, dot: '' };
+            return { title: r.t || '', proj: proj, sub: sub.join(DOT), prompt: '', age: ageText(r.age, nowMs), chips: chips, dot: '' };
         }
-        if (r.f) sub.push(r.f);
         if (whereText(r.where)) sub.push(whereText(r.where));
         if (type === 'open' && r.state === 'waiting' && r.what) sub.push(r.what);
         if (type === 'cut' && r.d) sub.push(r.d);
         (r.jobs || []).forEach(function (j) { chips.push(jobChip(j)); });
         return {
-            title: r.t || '', sub: sub.join(DOT), prompt: type === 'open' && r.prompt ? r.prompt : '',
+            title: r.t || '', proj: proj, sub: sub.join(DOT), prompt: type === 'open' && r.prompt ? r.prompt : '',
             age: type === 'cut' ? '' : ageText(r.age, nowMs), chips: chips, dot: r['new'] ? 'new' : ''
         };
     }
@@ -1681,8 +1772,8 @@ var ChatqBoard = (function () {
         idOk: idOk, handleOk: handleOk, newId: newId, downTopic: downTopic, subKey: subKey, fieldsFor: fieldsFor,
         buildComposePayload: buildComposePayload, sealCompose: sealCompose, compose: compose, composeBytes: composeBytes,
         sameBytes: sameBytes, inflateRaw: inflateRaw, canInflate: canInflate, openDown: openDown, pollUrl: pollUrl, parseFeed: parseFeed,
-        attachmentCheck: attachmentCheck, inlineSpans: inlineSpans, mdBlocks: mdBlocks, answerModel: answerModel, answerText: answerText,
-        hhmm: hhmm, ageText: ageText, sections: sections, olderRows: olderRows, rowView: rowView, whereText: whereText, norm: norm, filterRows: filterRows,
+        attachmentCheck: attachmentCheck, inlineSpans: inlineSpans, mdBlocks: mdBlocks, answerModel: answerModel, bubbleModel: bubbleModel, answerText: answerText,
+        hhmm: hhmm, ageText: ageText, sections: sections, olderRows: olderRows, rowSign: rowSign, rowView: rowView, whereText: whereText, norm: norm, filterRows: filterRows,
         chatOfJob: chatOfJob, chatActions: chatActions, stateLine: stateLine, modeText: modeText, listenText: listenText,
         usageLines: usageLines, notices: notices, cardText: cardText, answerHead: answerHead, cutText: cutText, askView: askView,
         whyText: whyText, answerState: answerState, answerDraft: answerDraft, pickOption: pickOption, pickOther: pickOther, typeOther: typeOther,
@@ -2655,12 +2746,20 @@ var ChatqBoard = (function () {
             if (mode === 'board' && bd.b) drawRows();
         }, null, ['list']);
     }
+    // the quest badge: a box in CSS, a '!' in it for work in progress
+    function badgeEl(sign) {
+        var b = el('span', 'qb', sign === 'work' ? '!' : '');
+        b.setAttribute('data-sign', sign);
+        return b;
+    }
     function rowEl(sec, type, r) {
         var v = B.rowView(type, r, Date.now());
         var row = el('button', 'row');
         row.type = 'button';
         row.setAttribute('data-sec', sec);
+        row.appendChild(badgeEl(B.rowSign(sec)));
         var m = el('span', 'rm');
+        if (v.proj) m.appendChild(el('span', 'rj', v.proj));
         var t = el('span', 'rt');
         if (v.dot) t.appendChild(el('span', 'nd'));
         t.appendChild(el('span', '', v.title));
@@ -2700,6 +2799,7 @@ var ChatqBoard = (function () {
         drawAsk('cAsk', null);
         $('cKicker').hidden = true;
         $('cPrompt').hidden = true;
+        $('cWho').hidden = true;
         $('cSearch').hidden = true;
         $('cList').hidden = true;
         $('cName').hidden = true;
@@ -2731,7 +2831,7 @@ var ChatqBoard = (function () {
         $('cMeta').textContent = meta.join(' \u00b7 ');
         $('cMode').textContent = B.modeText(b, false, chat, type === 'queue' ? row : null);
         $('cState').textContent = B.stateLine(type, row);
-        if (type === 'open' && row.prompt) { $('cPrompt').textContent = row.prompt; $('cPrompt').hidden = false; }
+        if (type === 'open' && row.prompt) { $('cPrompt').textContent = row.prompt; $('cPrompt').hidden = false; $('cWho').hidden = false; }
         // the question it waits on, every option with its description
         if (type === 'open' && row.state === 'waiting') drawAsk('cAsk', row.ask);
         var acts = B.chatActions(type, row, b), box = $('cActs');
@@ -2777,6 +2877,7 @@ var ChatqBoard = (function () {
             var row = el('button', 'row');
             row.type = 'button';
             row.setAttribute('data-sec', 'folder');
+            row.appendChild(badgeEl(B.rowSign('folder')));
             var m = el('span', 'rm');
             m.appendChild(el('span', 'rt', f.n));
             if (f.w) m.appendChild(el('span', 'rs', f.w));
@@ -2943,7 +3044,7 @@ var ChatqBoard = (function () {
             var cut = B.cutText(pl.cut);
             if (cut) box.appendChild(el('p', 'acut', cut));
             var body = el('div', 'abody');
-            drawBlocks(body, B.answerModel(pl.parts));
+            drawBubbles(body, pl);
             box.appendChild(body);
             if (p.note) box.appendChild(el('div', 'astate', p.note));
             return;
@@ -2957,6 +3058,21 @@ var ChatqBoard = (function () {
             st.appendChild(ask);
         }
         box.appendChild(st);
+    }
+    // Claude's turn as the game's phone shows it: a small "CLAUDE - time"
+    // heading the turn once, a bubble for each of B.bubbleModel's
+    // messages, the tool lines and notes between them as drawBlocks has them
+    function drawBubbles(body, pl) {
+        // the turn's header heads the turn, above any tools it began with
+        var items = B.bubbleModel(pl.parts), at = B.hhmm(pl.at);
+        if (items.some(function (k) { return k.t === 'msg'; }))
+            body.appendChild(el('p', 'who', 'CLAUDE' + (at ? ' ' + String.fromCharCode(0xB7) + ' ' + at : '')));
+        items.forEach(function (k) {
+            if (k.t !== 'msg') { drawBlocks(body, [k]); return; }
+            var m = el('div', 'msg');
+            drawBlocks(m, k.blocks);
+            body.appendChild(m);
+        });
     }
     function drawBlocks(body, blocks) {
         blocks.forEach(function (k) {

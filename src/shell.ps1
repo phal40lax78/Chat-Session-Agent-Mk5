@@ -158,6 +158,22 @@ function Invoke-ChatPSReadLine {
     if ($mi) { [void]$mi.Invoke($null, @($null, $null)) }
 }
 
+function Get-ChatArrowWas {
+    # What Up and Down did before the tool took them, from the bound list.
+    # A key already bound to the tool's own handler (a second dot-source in a
+    # shell that has it loaded) names no PSReadLine function: keep what the
+    # first run recorded, or nothing if it recorded none.
+    param($Bound, $Prior)
+    $was = @{}
+    foreach ($k in 'UpArrow', 'DownArrow') {
+        $h = @($Bound | Where-Object { $_.Key -eq $k }) | Select-Object -First 1
+        $was[$k] = if ($h -and $h.Function -ne 'ChatCycleOrHistory') { $h.Function }
+                   elseif ($h -and $Prior -and $Prior.ContainsKey($k)) { $Prior[$k] }
+                   else { $null }
+    }
+    $was
+}
+
 function Register-ChatKeyHandlers {
     # Tab starts or advances the run, Shift+Tab steps back, and the arrows do the
     # same but only while a run is live - otherwise they stay history navigation.
@@ -176,11 +192,7 @@ function Register-ChatKeyHandlers {
             Import-Module PSReadLine -EA Stop -Global
 
             # remember what the arrows did before we took them over
-            $script:ChatArrowWas = @{}
-            foreach ($k in 'UpArrow', 'DownArrow') {
-                $bound = Get-PSReadLineKeyHandler -Bound | Where-Object { $_.Key -eq $k }
-                $script:ChatArrowWas[$k] = if ($bound) { $bound.Function } else { $null }
-            }
+            $script:ChatArrowWas = Get-ChatArrowWas (Get-PSReadLineKeyHandler -Bound) $script:ChatArrowWas
 
             Set-PSReadLineKeyHandler -Key Tab -BriefDescription 'ChatCycleNext' `
                 -Description 'Fill in the next matching chat, described in a trailing comment' -ScriptBlock { Invoke-ChatKey Tab }

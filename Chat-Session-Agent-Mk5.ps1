@@ -20,7 +20,7 @@ Then type chat for the cheat sheet. Everything else is in README.md.
 # handing back what you already had. extension/package.json carries the same
 # version: the extension installs this copy by it, and extension/build.js
 # refuses to pack the two apart.
-$script:ChatVersion = '0.11.15'
+$script:ChatVersion = '1.1.0'
 
 # The tool's folder and this file, read here once and never inside a function:
 # data/ sits in that folder, and the profile line, the watcher and the overlay
@@ -90,10 +90,9 @@ if ($MyInvocation.InvocationName -eq '.' -and -not $env:CHATQ_WATCHER -and -not 
 # Each is lighter for it, a shell and the watcher too: 8 MB less .NET heap,
 # 10 to 44 MB less memory by how much the PC has free, and 0.1 to 0.2 s less
 # to load. All 27 are looked for above, so a broken copy still shows.
-# The headless host, the overlay whose panel is native
-# (Start-ChatOverlayHeadlessHost), starts without CHATQ_ALLPARTS and loads
-# the panel's and the console's parts itself, the first time its console is
-# asked for (Import-ChatOverlayConsoleParts).
+# The Rust host's start (Watch-ChatOverlayRustStart) runs without
+# CHATQ_ALLPARTS: it draws nothing of its own. Its console is a process of
+# its own, which loads every part (Start-ChatConsoleHost, console.rs).
 # A process that runs one thing loads only the parts that thing reaches:
 # the permission bridge, alive as long as a queued run, and the question
 # hook, one for each question held. CHATQ_ROLE names it, ahead of
@@ -103,11 +102,25 @@ if ($MyInvocation.InvocationName -eq '.' -and -not $env:CHATQ_WATCHER -and -not 
 # the functions it calls and the top-level variables of every part; the
 # self-test works that out again and fails on a list that misses a part
 # (tests/sections/find-delete.ps1). A fresh load, after a full collection,
-# median of 5: 88 MB private for the bridge's 10 parts and 94 for the hook's
-# 16, against 104 for all 23; 317 and 387 ms to load against 518.
+# median of 5, when the roles were made (its edition and date not kept):
+# 88 MB private for the bridge's 10 parts and 94 for the hook's 16, against
+# 104 for all 23; 317 and 387 ms to load against 518. Those are not to be
+# set beside the figures below, taken on another day.
+# The overlay's peek step (src/overlay-step.ps1, SPEC 3.9) is a third, its 9
+# parts measured the same way on 2026-10-28, with the bridge and all 23
+# measured again beside it on the same PC that hour, so these alone compare:
+# under 5.1, 120 MB against 123 and 125, 184 ms against 251 and 444; under
+# pwsh 7, 46 MB against 49 and 75, 210 ms against 244 and 431. 5.1's own
+# floor is most of its figure.
+# The Rust host's acting steps (ostep-act, SPEC 3.10) reach the headless
+# host's panel verbs (Invoke-ChatOverlayPanelVerb), whose auto-chip alone
+# brings in most of the rest: all but the icon, the phone's setup, the
+# overlay's launch and the three parts of its windows.
 $chatRoles = @{
-    permit = 'core', 'shell', 'queue', 'live-chats', 'alerts', 'phone', 'phone-extras', 'permit', 'phone-down', 'overlay-data'
-    ask    = 'core', 'shell', 'providers', 'chatrm', 'discoverability', 'queue', 'live-chats', 'alerts', 'phone', 'phone-extras', 'permit', 'ask', 'phone-down', 'phone-board', 'watcher', 'overlay-data'
+    permit      = 'core', 'shell', 'queue', 'live-chats', 'alerts', 'phone', 'phone-extras', 'permit', 'phone-down', 'overlay-data'
+    ask         = 'core', 'shell', 'providers', 'chatrm', 'discoverability', 'queue', 'live-chats', 'alerts', 'phone', 'phone-extras', 'permit', 'ask', 'phone-down', 'phone-board', 'watcher', 'overlay-data'
+    ostep       = 'core', 'providers', 'chatrm', 'queue', 'live-chats', 'alerts', 'watcher', 'overlay-data', 'host-work'
+    'ostep-act' = 'core', 'shell', 'providers', 'chatrm', 'discoverability', 'queue', 'codex-appserver', 'live-chats', 'alerts', 'phone', 'phone-extras', 'permit', 'ask', 'phone-down', 'phone-board', 'watcher', 'commands', 'overlay-data', 'overlay-host', 'auto-continue', 'host-work'
 }
 $chatRole = [string]$env:CHATQ_ROLE
 Remove-Item -LiteralPath 'env:CHATQ_ROLE' -EA SilentlyContinue

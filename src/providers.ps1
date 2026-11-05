@@ -76,13 +76,24 @@ function Get-ClaudeLeftovers {
         $c = Read-ChatChunk $File.FullName
         $slug = if ($c) { Get-ChatJsonString "$($c.Head)`n$($c.Tail)" 'slug' } else { $null }
         if ($slug -and $slug -match '^[A-Za-z0-9-]+$') {
-            $needle = "`"slug`":`"$slug`""
-            $others = @(Get-ChildItem -LiteralPath $File.DirectoryName -Filter *.jsonl -File -EA SilentlyContinue |
-                Where-Object { $_.FullName -ne $File.FullName })
-            $shared = $others -and [bool](Select-String -LiteralPath @($others.FullName) -SimpleMatch -Pattern $needle -List -EA SilentlyContinue | Select-Object -First 1)
-            if (-not $shared) {
-                foreach ($f in @(Get-ChildItem -LiteralPath $plans -File -EA SilentlyContinue |
-                        Where-Object { $_.Name -eq "$slug.md" -or $_.Name -like "$slug-agent-*.md" })) { $out.Add($f.FullName) }
+            # The plan first: most slugs have none. Then each other chat's
+            # head and tail, as this one's slug was read: Claude Code stamps
+            # the slug on a session's every record, so a chat that shares it
+            # has it at either end. Reading them whole was a gigabyte here,
+            # which ran an overlay delete past its step's 30 s, killed before
+            # the transcript went or its tab was asked to close.
+            $planFiles = @(Get-ChildItem -LiteralPath $plans -File -EA SilentlyContinue |
+                Where-Object { $_.Name -eq "$slug.md" -or $_.Name -like "$slug-agent-*.md" })
+            if ($planFiles.Count) {
+                $needle = "`"slug`":`"$slug`""
+                $shared = $false
+                foreach ($o in @(Get-ChildItem -LiteralPath $File.DirectoryName -Filter *.jsonl -File -EA SilentlyContinue)) {
+                    if ($o.FullName -eq $File.FullName) { continue }
+                    $oc = Read-ChatChunk $o.FullName
+                    if ($oc -and ($oc.Head.IndexOf($needle, [StringComparison]::Ordinal) -ge 0 -or
+                            $oc.Tail.IndexOf($needle, [StringComparison]::Ordinal) -ge 0)) { $shared = $true; break }
+                }
+                if (-not $shared) { foreach ($f in $planFiles) { $out.Add($f.FullName) } }
             }
         }
     }

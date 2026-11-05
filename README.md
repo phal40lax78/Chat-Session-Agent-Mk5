@@ -1,4 +1,4 @@
-# Chat Session Agent Mk.5 - Claude, Codex, ...
+# Chat Session Agent Mk.5 - Claude Code & Codex
 
 Mission control for your AI chats. Every Claude Code chat sits on one
 always-on-top board — and on your phone — with its project, title and newest
@@ -7,11 +7,11 @@ limit is hit run at the reset, even with VS Code closed, and your phone says
 how they went. Find or delete any Claude Code, Codex or Copilot chat from
 PowerShell.
 
-[![marketplace](https://vsmarketplacebadges.dev/version-short/redaechan.charlie-and-the-chat-factory.svg)](https://marketplace.visualstudio.com/items?itemName=redaechan.charlie-and-the-chat-factory)
+[![marketplace](https://vsmarketplacebadges.dev/version-short/redaechan.chat-session-agent-mk5.svg)](https://marketplace.visualstudio.com/items?itemName=redaechan.chat-session-agent-mk5)
 [![release](https://img.shields.io/github/v/release/phal40lax78/Chat-Session-Agent-Mk5)](https://github.com/phal40lax78/Chat-Session-Agent-Mk5/releases)
 [![licence](https://img.shields.io/github/license/phal40lax78/Chat-Session-Agent-Mk5)](LICENSE)
 [![PowerShell 5.1 | 7](https://img.shields.io/badge/PowerShell-5.1%20%7C%207-5391FE?logo=powershell&logoColor=white)](#requirements)
-![sponsor: coming soon](https://img.shields.io/badge/sponsor-coming%20soon-lightgrey?logo=githubsponsors)
+[![sponsor: coming soon](https://img.shields.io/badge/sponsor-coming%20soon-lightgrey?logo=githubsponsors)](DEFERRED.md#sponsorship)
 <a href="https://slint.dev"><img src="https://raw.githubusercontent.com/slint-ui/slint/master/logo/MadeWithSlint-logo-whitebg.png" alt="Made with Slint" height="20"></a>
 
 ![chatq queueing a prompt for a chat picked by its title, to be sent a minute after the five-hour limit resets](docs/demo-queue.svg)
@@ -31,12 +31,12 @@ One script and the `src/` folder it loads, no modules, nothing to build. It was 
 
 ## Install
 
-**From VS Code:** install **Chat Session Agent Mk.5 - Claude, Codex, ...** from the
-[Marketplace](https://marketplace.visualstudio.com/items?itemName=redaechan.charlie-and-the-chat-factory) -
+**From VS Code:** install **Chat Session Agent Mk.5 - Claude Code & Codex** from the
+[Marketplace](https://marketplace.visualstudio.com/items?itemName=redaechan.chat-session-agent-mk5) -
 search the Extensions view, or:
 
 ```powershell
-code --install-extension redaechan.charlie-and-the-chat-factory
+code --install-extension redaechan.chat-session-agent-mk5
 ```
 
 On its first start it puts the scripts in `~/Tools/Chat-Session-Agent-Mk5`,
@@ -44,6 +44,11 @@ asks once before adding the line that loads them to your PowerShell profile,
 and from then on VS Code's own extension updates keep the scripts up to date
 too. [What it does, step by step](extension/README.md). Then open a new
 terminal and type `chat`.
+
+**Had it before 0.11.20?** Its ID was `redaechan.charlie-and-the-chat-factory`,
+a Marketplace listing that gets no more updates. Install the one above; while
+the old one is still installed the new one does nothing and offers to
+uninstall it. Settings, the tool folder and `data/` carry over.
 
 **Terminal only**, without the extension:
 
@@ -595,7 +600,7 @@ and one prompt offers all of them:
   three. A click on it opens [the console](#the-console) with the chats
   listed; it never answers by itself, since a toast is often clicked just
   to be rid of it;
-- **a marker** at the foot of the panel's header, a short magenta tile
+- **a marker** at the foot of the panel's header, a short red tile
   with a warning triangle; rest the pointer on it and its card says
   `limit over at 13:00 · 3 chats it cut off can continue` and names them,
   and its chip offers **continue 3** or **leave them**;
@@ -612,7 +617,7 @@ and one prompt offers all of them:
 the job `chatq <title> -Continue` makes, and starts the watcher, which
 continues them one at a time, ahead of the prompts waiting (see
 [When it sends](#when-it-sends)). **Leave
-them** leaves them as they are: their rows stay magenta, and **Continue
+them** leaves them as they are: their rows stay red, and **Continue
 all** in the console, or `chatq <title> -Continue`, still continues one.
 Either way that cut-off is not asked about again; the same chat cut off by
 a later limit is a new one.
@@ -624,7 +629,7 @@ waited 30 s with no answer, as **Continue** would; overlay.log says
 ask as it is, so a chat joining it, or the overlay starting again,
 starts it over. An ask with a chat a VS Code restart cut off in it is
 never answered this way. The native panel's Character view shows the
-wait as a red timer under its picker. 0, the default, never answers.
+wait as a gold timer under its picker. 0, the default, never answers.
 
 Left out, and why:
 - **a 529** - it has no reset to wait for. [Auto-continue](#auto-continue),
@@ -634,14 +639,14 @@ Left out, and why:
   tooltip names it;
 - **a chat with a job queued or running** - it goes anyway;
 - **a reset over 12 hours ago**, and **a limit record with no reset time**
-  (from older Claude Code) - left to you; the magenta row stays;
+  (from older Claude Code) - left to you; the red row stays;
 - **everything, while a 5 h or weekly window is still at its limit** - the
   chats could not go yet. The ask waits for that reset.
 
 **Turning it off:** the settings box's **Cut off** → **Leave**, or
 `chatq -AutoContinue off` (`ask` turns it back on). Either writes
 `"autoContinue": "off"` at the top of `data/config.json`. Off, a cut-off
-chat is only marked magenta, as before 0.9.0. **Continue** there, or
+chat is only marked red, as before 0.9.0. **Continue** there, or
 `chatq -AutoContinue on`, is [auto-continue](#auto-continue): nothing is
 asked, each is continued by itself. Nothing asks while no overlay runs,
 and `chatoverlay -Print` shows the ask but never acts on it.
@@ -691,7 +696,7 @@ Windows only: a window's chats are told apart by walking each `claude`
 process up to the window's extension host, and off Windows chatq cannot
 read a process's parent, so no note is written there. The overlay's notes
 need it running before the window goes. The ask needs the overlay running
-and `autoContinue` not `off`. With it off, the chats show only as magenta
+and `autoContinue` not `off`. With it off, the chats show only as red
 rows (config `cutOff`, on by default), to continue from the console's
 **Continue**. With no overlay running, nothing is offered.
 
@@ -717,7 +722,7 @@ not finish, since `claude --resume` does not bring background work back -
 and then Claude Code's own *Continue from where you left off*. It goes in
 the chat's own mode, ahead of the prompts waiting, and is dropped if the
 chat went on first. **Leave them** leaves them, and their rows go - unlike
-a chat the limit cut off, which stays magenta. Either way the chat is not
+a chat the limit cut off, which stays red. Either way the chat is not
 asked about again. [Auto-continue](#auto-continue) never continues these
 by itself, even switched on: the ask still comes for them, since a reload
 may have stopped something you meant to stop. A note over 12 hours old is
@@ -762,9 +767,8 @@ chatq 'Parser rewrite' -AutoContinue default # this chat: follow the switch
 chatq 12 -AutoContinue never                 # the chat of job 12
 ```
 
-The same switch is the overlay's settings box (**Cut off**: Continue, Ask
-or Leave), its tray menu (**Auto-continue cut-off chats**, checked while it
-is on; unchecked goes back to Ask), the Mac menu's item and **Chat Manager:
+The same switch is the native panel's menu (**Settings > Cut-off chats**:
+Continue, Ask or Leave), the Mac menu's item and **Chat Manager:
 Auto-continue cut-off chats...** in VS Code: all of them set `autoContinue`
 in `data/config.json`. A chat's own setting is in `data/auto-continue.json`,
 which the console's **Auto-continue after a limit** chips set too. The
@@ -885,7 +889,7 @@ While a job is due within 6 hours it keeps the machine from sleeping (the
 display still turns off, and a closed lid still sleeps a laptop).
 `chatqrun -Foreground` runs it in the console to watch.
 
-A native watcher, chatqd, is on its way (native/SPEC.md),
+A native watcher, chatqd, is on its way ([native/SPEC.md](native/SPEC.md)),
 and no build of it ships yet. A developer's build in
 `bin/<version>/<target>/` beside `data/`, or one `CHATQ_CHATQD` names, is
 started in the PowerShell watcher's place, and runs the queue itself: it
@@ -1162,13 +1166,28 @@ repository's **Settings → Pages** has it deploy from the `main` branch,
 `/docs` folder. A fork that serves its own copy the same way points
 `chatnotify -ReplyPage` at it.
 
+The page wears the Character view's look: the quest tracker's rows and the
+game's phone messages - corners cut, never rounded, a small tail on a
+message. In the phone's **dark mode** it takes the HUD's palette too:
+near-black, dark teal panels, yellow headers and button, HUD red for a row's
+age and what is cut off, mint for what works, in a condensed face from the
+phone's own fonts (none is loaded). In **light mode** the colours are as
+they were and only the shapes change. Only the page's looks changed; what it
+sends and receives did not.
+
 #### The whole answer
 
 A `done`, `needs input` or `failed` alert about a chat also brings the
 chat's whole last turn: the page shows it above the box you answer in,
 `Claude's answer - 14:02`, rather than the alert's 200 characters. Claude's
 text, with code blocks, inline code, headings and bold drawn and tables
-kept in columns; each tool it used as one line, `-> Bash git status`, and
+kept in columns, **split into messages as the game's phone has them**
+(`CLAUDE · 14:02` heading the turn): each paragraph is a message of its own,
+a heading goes in the message of what follows it (alone, if nothing does),
+and a code block or a table is one message, never split; the tools and
+notes sit between the messages. In a chat's view its newest prompt is the
+message you sent, `YOU`, on the right. Each tool it used is one line,
+`-> Bash git status`, and
 three or more in a row folded into `-> 5 tools`, a tap away; a limit or a
 529 as a note. Links stay text. **Show all** opens it to full height,
 **Copy** copies it, and while the keyboard is up it folds to one line so
@@ -1194,8 +1213,12 @@ to Home screen** - on the paired phone, and it is the overlay, phone-sized:
 - usage, a line and a bar per window, the reset when limited and `as of`
   when the figure is an hour old;
 - **Waiting on you**, **Working**, **Cut off**, **Queue**, **Open, idle**
-  and **Recent**, in the overlay's order and colours: each chat's folder,
-  where it runs (VS Code or a terminal), its newest prompt, its age, the
+  and **Recent**, in the overlay's order and colours, as the quest
+  tracker's rows: a badge for the state - a yellow square with a `!` for
+  work, a red empty box for a chat that waits on you or is cut off, a green
+  one with a tick for a recent one, a dim empty one for the rest - the
+  chat's folder as a small yellow line of capitals above its title, where
+  it runs (VS Code or a terminal), its newest prompt, its age (HUD red in dark mode), the
   dot of a turn not seen yet, and the jobs riding on it; a job's
   number and when it sends, as `chatqlist` has it;
 - a search over the titles and folders, every word in any order, Hangul
@@ -1746,7 +1769,7 @@ Windows no wider than a chat's tile, about 150 units:
   one a line, its border drawn in it, with a big seven-segment
   clock lit in it over the faint ghost of every segment: how long the chat
   has worked, waited on you or sat idle, in hours and minutes (`0h05`,
-  `2h05`), moving by the minute; days and hours past 99 hours (`4d07`). A
+  `2h05`), moving by the minute; days and hours from a day (`1d03`). A
   tile whose chat needs you - amber, or cut off - has its ground washed in
   its colour, one at work a little, the rest none. The chat's project,
   title and words are on [its card](#the-overlay), which a rest on the row
@@ -1792,11 +1815,18 @@ Windows no wider than a chat's tile, about 150 units:
   the job runs. The phone's board says `a queued prompt` there.
 - **A dot for a turn you have not seen,** on Windows only. A chat
   that went from working or waiting to idle while you were elsewhere gets
-  a dot - red in the dark look, blue in the light - on its tile's top
+  a dot - cyan in the dark look, blue in the light - on its tile's top
   right corner, and the collapsed line and the
-  tray icon's tooltip count them (`2 new`). A chat whose window was in
-  front as it finished gets none: any window of its VS Code counts, or for
-  a terminal's `claude` any tab of the terminal that draws it. A console
+  tray icon's tooltip count them (`2 new`). A chat with a VS Code tab
+  of its own goes by that tab: it gets the dot unless its tab was in
+  front of a focused VS Code window as it finished, another tab of the
+  same window in front counting as elsewhere, and its tab held in front
+  for a second clears the dot - reading it in VS Code is reading it. A
+  tab the overlay cannot name (an untitled tab, or two tabs of one
+  title) goes by the program, as a terminal's chat does: a chat whose
+  window was in front as it finished gets none - any window of its VS
+  Code counts, or for a terminal's `claude` any tab of the terminal that
+  draws it. A console
   Windows handed off to Windows Terminal (its default-terminal setting)
   cannot be matched, so that chat gets the dot even with its tab in front.
   The chip clears the dot once its open sent the window its request -
@@ -1808,9 +1838,9 @@ Windows no wider than a chat's tile, about 150 units:
   tab, and the tray says so; `26`, `42` or `43` when that window was not
   brought forward either), an open that failed before the request, or
   one with no answer in 60 seconds leaves it. A new turn, or its session ending, clears it too. The
-  overlay keeps it in memory only, so a restart clears every dot, and
-  reading the chat in VS Code clears none.
-- **Chats the limit cut off,** in magenta, just under those waiting on you,
+  overlay keeps it in memory only, so a restart clears every dot. A
+  Mark unread on the tab in front holds until you leave it and come back.
+- **Chats the limit cut off,** in red, just under those waiting on you,
   their cards saying `cut off - resets 13:00`, or `529 - waits for Claude`. The tile's clock
   counts down to the reset (`-1h30`), and once that is past - or with none
   to wait for, as for a 529 - up from when it was cut off. One no window has
@@ -1820,7 +1850,7 @@ Windows no wider than a chat's tile, about 150 units:
   console's Continue, or `chatq <title> -Continue`, queues one. With
   [auto-continue](#auto-continue) on, its card says what it does with the
   chat, in few words - `#12 auto 13:01` (a continue queued, and when it
-  goes: that continue stays on the magenta row), `resets 13:00 · never`,
+  goes: that continue stays on the red row), `resets 13:00 · never`,
   `· terminal`, `· skipped` (its continue taken back, or left at the
   ask), `· failed`, `· stopped`, `· by hand` (too old, or a reset days
   out) - under its name, and the same in full in the chip's tooltip; in the
@@ -1831,17 +1861,18 @@ Windows no wider than a chat's tile, about 150 units:
   open`: every notice is a short tile of its own, about a Recent line
   tall, in its colour, holding a glyph alone - a warning triangle for a
   warning, a ring with a cross for an error, a ring with `i` for what is
-  only said, an open padlock while the panel is unlocked. Rest the pointer
+  only said, an open padlock while the WPF panel is unlocked (the native panel
+  has no lock). Rest the pointer
   on it and its card comes up beside the panel, as a chat's does, with a
   word in its colour - **MEMORY**, **LEAK**, **WATCHER**, **NEXT**,
-  **ERROR**, **CONTINUE?**, **RELOAD?**, **OPENING**, **UNLOCKED** - and
+  **ERROR**, **CONTINUE?**, **RELOAD?**, **OPENING**, **UNLOCKED** (WPF) - and
   the words in full, kept up as they change. The notes and the limit's
   ask sit in the header, under the usage gauges; a reload's ask, what
-  the chip said and the unlocked hint at the foot, under every row. Folded to one line, the
+  the chip said and the WPF panel's unlocked hint at the foot, under every row. Folded to one line, the
   header's markers are drawn under it, a rest away still. `chatoverlay
   -Print` and the macOS panel keep their lines of words.
 - **The ask, once the limit is over:** a marker at the foot of the header,
-  in the cut-off magenta, its card saying `limit over at 13:00 · 3 chats
+  in the cut-off red, its card saying `limit over at 13:00 · 3 chats
   it cut off can continue` and naming the chats, and those left to a
   terminal. Rest on it for its chip - **continue 3** or **leave them** -
   which comes and arms as the open chip does, its words just outside the
@@ -1864,7 +1895,9 @@ Windows no wider than a chat's tile, about 150 units:
   card - five by default, and
   more as [the panel is stretched](#the-overlay) past its open chats. Each
   opens as a tab from its chip, as an open row does. A side transcript, an
-  empty one, and a chat whose folder is gone are never listed - a folder
+  empty one, the empty session Claude Code's `/clear` starts (the chat from
+  before the clear stays; the new session is listed once it has a real
+  prompt), and a chat whose folder is gone are never listed - a folder
   is looked for again every 3 minutes, and one on a network share or a
   mapped drive is never looked for, so it is listed - and lines the screen
   cannot hold are left off. The list is built again at most once
@@ -1945,21 +1978,26 @@ counted. `overlay.leakGB` sets the amount; 0 turns it off.
 climbs slowly over a day or two. After the heap compaction it runs every
 5 minutes, at 300 MB or more, 50 MB over the least it held from 30
 minutes in and an hour up, it restarts as it does for an update, once
-nothing is under way, and `overlay.log` says why. That forgets the unread
+nothing is under way, and `overlay.log` says why. That is the
+PowerShell host's figure, macOS's; the Rust host, Windows's, holds far
+less, so its own limit is 100 MB unless `overlay.restartMB` is set, with
+the same 50 MB and the hour. Something under way holds the restart for
+10 minutes at most, in both. That forgets the unread
 dots, a reset ask's phone alert still waiting for you to be away, and
 when the tray last spoke of memory. `overlay.restartMB` sets the figure;
 0 turns it off.
 
-**It stays out of the way.** As a panel it never takes focus, and clicks go
-through it - all but its top strip; only while it is the console (below)
-does it take the keyboard. Along that top strip runs a bar, always there
-while the panel is, with the buttons at its right end. The bar takes the
-mouse even while the panel is locked: hold it anywhere off its buttons
+**It stays out of the way.** As a panel it never takes focus; only while it
+is the console (below) does it take the keyboard. The WPF panel lets clicks
+go through it, all but its top strip, until it is unlocked (below); the
+native panel takes every click on it, so what is under it is reached by
+moving it, or hiding it. Along the top strip runs a bar, always there
+while the panel is, with the buttons at its right end. Hold the bar
+anywhere off its buttons
 and drag to move the panel - the pointer shows the four-way arrow there,
 and the plain one over a button, and a press on a button never drags. The
 bar is drawn all but clear, so nothing hides the rows' look, and the
-panel's opacity fades its buttons with the panel. The rows below it let
-clicks through as before.
+panel's opacity fades its buttons with the panel.
 
 **Resize it by its top or bottom edge**: rest the pointer on the panel -
 or on the bar, or just outside its edge - for a moment and the edges come;
@@ -1995,7 +2033,8 @@ window's caption:
 - **refresh** (a circular arrow): asks Claude, Codex and Copilot for usage
   now. It turns while it asks, and Claude's gauge's card - the gauge drawn
   while a Claude chat is open - reads `asking...`, then `checked 22:22:01`
-  - or why it did not ask. Codex is
+  - or why it did not ask. The native panel has no such button: a click on a
+  gauge asks (Character view, below). Codex is
   asked through `codex app-server`, a wait after a failure lifted; with
   `-CodexUsage off`, or no answer yet, its figure is what Codex wrote on
   its last run (`last run Mar 13`), and moves only when Codex runs;
@@ -2036,17 +2075,17 @@ no focus, in neither Alt+Tab nor the taskbar: a ring lights round the
 tile in the accent's colour, its tooltip saying what a click does - open
 the chat, or **watch** its run while a queued prompt runs in it - and
 **delete**, the small bin always drawn at the tile's right end - faint
-where it can't delete - lit under the pointer. Press a tile and move it a few pixels to drag the panel, as
+where it can't delete - lit under the pointer (the PowerShell panel's; the
+Rust host's tile has no bin, it is swiped away: see Delete a chat from its row). Press a tile and move it a few pixels up or down to drag the panel, as
 from the bar; let go without moving and it opens. A pointer sweeping
 across brings up nothing, and it shows once per visit to a row. Where it
 came up under the pointer, a click in its first 300 ms does not count - it
 was on its way to what is under the panel before the chip could be seen -
-and **click again** shows beside the bin; one after that counts, as does
-any once the pointer has been off it. From the click on, the chip counts `opening 3s` beside the
-bin, and a
+and **click again** shows (beside the bin on the PowerShell panel, on the tile's right part on the Rust host); one after that counts, as does
+any once the pointer has been off it. From the click on, the chip says `opening` there, and a
 marker at the foot of the panel, under every row, says on its card - and
 the chat's own card says too -
-`opening '<title>' in VS Code - 3s`, then `opened '<title>'` for 5 s, or
+`opening '<title>'`, then `now tracking '<title>'` for 5 s, or
 why not, in amber, for 20 s - held, a terminal's, no `code`, a crash of the
 open's own PowerShell (its exit code), no answer in 60 s. Under every
 row, no row moves as it comes and goes - a second click lands where the
@@ -2102,8 +2141,8 @@ auto-continue off or asking, its card keeps the plain `cut off - resets
 13:00` words, and **continue** is still there. A chat a terminal's
 `claude` holds gets no **continue**, in any mode: Claude Code's own wait
 continues it there, and a continue queued too would be a second writer.
-They sit just outside the panel on the card's side, never over the
-tile, and the card goes out past them. Their tooltip says the
+They sit just outside the panel on its roomier side, never over the
+tile, and the card goes out past them when it is on that side too. Their tooltip says the
 card's words in full. A click
 counts only when it goes down and up on the same chip - the banner's two
 answers too - and neither takes a chat's unread dot away. The tray says
@@ -2111,10 +2150,12 @@ what was done.
 
 **What a chat is doing, from its row.** On Windows, as the chip comes up
 on a row, a card comes up just beside the panel: level with the row, on
-the side of the panel with more room, and on the screen. A usage gauge's
+the panel's right where it fits there, else on its left, and on the
+screen. A usage gauge's
 card hangs under the gauge instead, or sits over it where the screen's
 foot leaves no room. It goes as the chip
-does, 300 ms after the pointer leaves the row. A queued prompt's own row
+does, 500 ms after the pointer leaves the row and the card (back on either
+within that, it stays). A queued prompt's own row
 gets one too, and so does a marker; none comes while the settings box
 is open, the panel is being dragged, or the console is up, and folded to
 one line only a gauge's or a marker's does. Like the chip it takes no focus and is in neither Alt+Tab
@@ -2156,8 +2197,27 @@ longer, up to 4 MB - and again on the panel's 2 s pass only while it
 shows and the transcript grew. A Codex job's card has its prompt alone:
 its rollout is not read. macOS has no card.
 
-**Delete a chat from its row.** Wherever a row opens its chat - the
-panel's tile, the console's name - it has **delete**, the bin: beside
+**Delete a chat from its row.** In the Rust host's Panel view, swipe it
+away: press a tile or a Recent line anywhere and drag it sideways, either
+way. The row slides
+within its place with the pointer, and the space it uncovers shows two
+blocks side by side from the first move: a grey one with three dots beside
+the row, uncovered first, and a red one outermost with a black bin, as Gmail
+shows a swipe to delete. Past 45% of the panel's width both are whole; let go
+there and the row stays open on the two blocks. Click the red one and the
+chat is deleted for good, as `chatrm` does, with no second ask - the
+click is the decision - and the row slides out and the rows below close up
+(with Windows' animations off it just goes). Anything else shuts the open
+row and springs it back, nothing deleted: a press elsewhere on the panel,
+Esc, or a swipe on another row. Let go short of the red and it springs
+back at once. A chat at work, waiting on you, open in a terminal, or with a
+queued prompt running swipes open too, but its bin is faint (locked),
+dragged or open: a click on it deletes nothing and says IN USE at the
+panel's foot for 5 seconds. Moving mostly up or
+down still drags the panel, and a press that does not move still opens
+the chat. The tile has no bin, so the panel is narrower by it.
+
+The PowerShell panel and the console keep **delete**, the bin: beside
 the panel for a tile, at the row's right end in the console - `chatrm`
 without the typing. The first
 click only asks: the bin turns red and **sure?** shows beside it for 4
@@ -2175,6 +2235,24 @@ cached, as after `chatrm` ([A deleted chat's tab](#a-deleted-chats-tab));
 there is no undo - `chatarchive` is the way to put a chat away and keep
 it.
 
+**The row's menu.** Click the grey block's dots and a menu opens under
+it, the row staying open: **Mark read** or **Mark unread** (the unread
+dot, for a chat a Claude process holds that is not at work), **Snooze**
+(1 hour, 4 hours, or until tomorrow, 08:00), **Open**, and **Archive**
+(`chatarchive` for a Claude chat not in use; a chat open in a VS Code
+window has its tab closed, as a delete does). What the row cannot take is
+greyed, and its tip says why. Snooze and Archive slide the row out over
+grey; Esc, a press outside or the dots again shut the menu and spring the
+row back.
+
+**Snooze.** A snoozed chat is off the panel's rows, the counts, the tray,
+the HUD and the phone's board, and Recent fills its place, until it wakes:
+when its time is up, when it starts waiting on you, or when it goes from
+busy or waiting to idle. The list is `data/overlay-snooze.json`, so a
+restart keeps it. Alerts and pushes for the chat still go out. The tray
+menu's **Snoozed (n)** submenu lists them with when each wakes; a pick
+brings that chat back now.
+
 The tray says when it could not: someone's own `claude -p` running in that
 chat, no job of chatq's (open it once it finishes), a chat open in a terminal, working or not (never
 opened in VS Code as well, or there would be two writers), a window that
@@ -2186,32 +2264,77 @@ Claude Code never lists - every one **+ New chat** made - it says the
 window offers it in a terminal instead of a tab, and the unread dot stays;
 if that window was not brought forward either - other folders open, no
 `code` command, or `code` failing - it says that too, as a warning.
-What you pick in the settings box is kept in `config.json`, like a setting made with
+What you pick in the native menu's Settings is kept in `config.json`, like a setting made with
 `chatoverlay`; a collapsed panel stays collapsed across restarts.
 
-**Ctrl+Alt+Shift+O** or the tray icon's menu unlocks the whole panel to drag,
+In the WPF panel **Ctrl+Alt+Shift+O** or the tray icon's menu unlocks the whole panel to drag,
 not just its bar and its tiles: it gets a red edge (blue in the light look) and an open padlock marker at its foot, whose card says how to lock it, and it locks itself again two
-minutes after the pointer leaves. The tray icon is the skin's face - the
+minutes after the pointer leaves. The native panel has no lock: it takes
+the mouse always, a press on a tile or a Recent line opens it or swipes it
+away, a press on its frame, bar or empty space drags it, and in Character
+view the character is always draggable; **Ctrl+Alt+Shift+O**
+hides and shows it. The tray icon is the skin's face - the
 default skin's shard (a leaning red data shard with a cyan core, on a base plate; the extension's icon too), or the
 pack picked in the native panel's Skin menu: its `stills/tray.png`, else its tray still
-(`skin` in `data/overlay-state.json`; the WPF panel reads it as it starts) - with a dot at its bottom right in the
-colour of the most urgent chat, ringed in red in the dark look; its tooltip, starting `Mk.5:`, counts
+(`skin` in `data/overlay-state.json`) - with a dot at its bottom right in the
+colour of the most urgent chat, ringed in cyan in the dark look; its tooltip, starting `Mk.5:`, counts
 the chats - those the overlay asks about as `2 can
 continue`, apart from the rest `cut off` - and gives Claude's 5 h
 percent, with its reset when that is the window you wait on
 (`5h 43%, resets 13:00`).
 Left-click it to
-hide or show the panel; right-click it for Open console, Phone alerts...,
-**Auto-continue cut-off chats** (checked while [it](#auto-continue) is on;
-unchecked goes back to Ask), **Continue chats a VS Code crash cut off**
-(checked while `autoContinueCrash` is on - [what it
-does](#when-a-reload-cut-chats-off)), Lock, Hide, Collapse,
-Refresh usage, Move to top right and Quit - and, at the top while the
-overlay asks about the chats the limit cut off, **Continue 3 cut-off
-chats** and **Leave them**. The native panel's menu adds Skin and,
-under it, its two views, the one on show dotted, the chord
-**Ctrl+Alt+Shift+D** beside them; the chord switches between them from
-anywhere. **Panel view** - the view the first time the panel starts,
+hide or show the panel; right-click it for its menu.
+
+The panel has one menu for both views. It opens from the tray icon,
+from a right click on the panel, its bar or the character, and from the
+gear in either view; the panel has no settings box. The overlay
+draws the menu itself, in the panel's look: dark in Character view, and
+the theme's in Panel view. Items show their tips, **Skin** and
+**Settings** open submenus on hover, and a click on a head opens it too.
+Up, Down, Left, Right, Enter and Esc work it; a click elsewhere, Esc,
+losing focus, or the panel hiding closes it. The panel and the
+character go on moving while it is open. From the top:
+- the ask's two items, while there is one;
+- **Open console** and **Phone alerts...**;
+- the two views, the one on show dotted, with the chord
+  **Ctrl+Alt+Shift+D** beside them (the chord switches between them from
+  anywhere);
+- **Skin**;
+- **Record mode**, in a checkout only. In a console of its own it plays
+  the promo scene's lines and dialog (`design/skippy/demo/promo.json`)
+  on this overlay as it is, with your real chats, settings and skin
+  (`tools/overlay_scene.py --live`). The skin's own lines wait until the
+  scene ends or Ctrl+C there. One line at a time:
+  `py tools/overlay_scene.py --say "text" --mood smug`, then `--end`;
+- **Settings**: Theme, Recent chats and Cut-off chats, **Continue chats a VS Code crash cut off**, and the
+  panel's opacity (100 to 50 %) and rows (3 to 20) in steps, and
+  **HUD size** (50, 100, 150 or 200 %, default 150), which scales
+  Character view's speech box, card, gauges and quests, **Character
+  size** (the same four), which scales the character, its tags and the
+  bar over it, and **Animations** (On, the default; Off; or As
+  Windows, which follows Windows' own Animation effects);
+- the version and the hotkey.
+
+Hide, collapse and Quit are the bar's buttons, a click on a gauge
+refreshes the usage, and the tray's click and the hotkey hide and show
+the panel. `chatoverlay -Reset` moves it back to the top right.
+
+**Skin packs as .zip files (Windows).** **Skin > Import pack...** opens a
+Windows window for a .zip, checks it, adds the pack to the `data\skins\`
+folder of the tool folder and puts it on the character; a pack that cannot
+be taken is refused in a box that says why, and where fixing the zip helps,
+offers the page that describes the format
+([docs/skin-pack.md](docs/skin-pack.md)). A pack with the id of one you
+already have is replaced only if you say Yes, and the old one is kept in
+`data\skins\.replaced\`; a folder you have been editing by hand (a `.git`,
+drafts, videos, a README) is never replaced. **Skin > Export pack** saves a
+pack you have as a .zip to share or keep, and **Default (as a new pack)...**
+saves the built-in skin as a starter named after the file you give it, to
+import and then edit. The VS Code extension has the same two as **Skin pack:
+import a .zip...** and **Skin pack: export as a .zip...** in the command
+palette (Windows only).
+
+**Panel view** - the view the first time the panel starts,
 for when someone else can see your screen - is the tile panel alone, no
 character, and the panel and the tray look and speak as the plain
 built-in skin whatever skin you picked. **Character view** is the HUD
@@ -2222,22 +2345,146 @@ switches to Character view so the pick shows.
 Collapsed, the one line says how many cut-off
 chats auto-continue will continue: `3 cut off (1 auto)`.
 `chatoverlay -Unlock`, `-Lock`, `-Reset`,
-`-Collapse`, `-Expand` and `-Refresh` do the same from a shell.
+`-Collapse`, `-Expand` and `-Refresh` do the same from a shell;
+with the overlay not running, `-Unlock` and `-Lock` set the WPF panel's
+lock for its next start; the native panel ignores them.
 
 **Character view.** In Character view, the native panel is not a
 panel of tiles but a HUD with no frame: the skin's character in the
-middle - the built-in skin's badge, or your pack's - alert tags down its left (AUTO, `ASK 2`,
-`RLD 1`, the notes, MUTE), up to five job dials down its right - the
-chat that needs you on top, then cut off, working, finished and unread,
-queued, idle; `+3` for the rest - and a thin bar per usage window under
-it. A dial's colour is its state (cyan, then violet after 5 minutes and
-pink after 20 for one at work; yellow, blinking, for one that waits on
-you; red cut off; green finished and unread; grey idle); its wedge is
-the age in its hour or the countdown to a reset or a send, a tick
-outside it each full hour, and it flashes green twice when a chat
-finishes. Rest the pointer on a dial or a tag for its chip and card, as
-on a tile. The character's lines float beside it in a box with a line
-to its mouth, `Name:` first; click the box to hurry it on. With no line
+middle - the built-in skin's badge, or your pack's - with alert tags down
+its left (AUTO, `ASK 2`, `RLD 1`, the notes, MUTE) and the panel's bar of
+buttons along its top. Two windows of their own sit at the screen's
+edges, on the monitor the HUD is on, over whatever is there, and let
+clicks through to what is under them; resting on a gauge card or a quest
+brings its hover card, with keys under it; the keys' letters work on the
+keyboard while the pointer is on the card or on what brought it up. A
+gauge brings only its keys, ASK (F) among them: the gauge already says
+the rest. **The gauges** are at the top left: one
+card per provider with usage, Claude's first, stacked edge to edge. A
+card has a bar per window, its words at its right: a grey line on top
+lit by the share of the 5 h window gone (`resets at 10:53`; when the week
+resets first, it counts to the week's); a red bar with a cut corner,
+**health**, the 5 h window's share left (`5H 70%`); a row of 36 teal pips,
+**RAM**, the week's (`WEEK 19%`); and a gold line, **stamina**, per model
+week (`FABLE 60%`), none when there is none. When a share moves its bar
+drops as the game's does: a pale block over the last 10 % lost closes to
+a white sliver and fades, and the pips it took go red from the top, one
+after another. At 0 % the health bar flatlines (`CRITICAL SYSTEM
+FAILURE`, then a skull and `FLATLINED`), and when a 5 h window runs out
+the whole screen plays the game's FLATLINED, with a menu: **REBOOT AT
+RESET** (auto-continue on), **ASK PER CHAT** (auto-continue asks) or
+**JACK OUT** (close, nothing changed). A click off the menu is JACK OUT;
+after 60 s it closes by itself and the setting stays. The stamina line
+starts under the badge, a gold bolt at its left. While usage is asked the cards
+vanish and come back in, as the dialog options do. Red drawings stand
+at each card's left, as in the game. **The quests** are at the right, below the top: a
+yellow caps header with a crosshair per project (a chat's folder, else
+its project, else `OTHER`; the project with the most urgent chat
+first) and a row per chat under it - a badge and the title in up to two
+lines, with the time Panel view's tile shows at its right in smaller red
+figures, always. A list taller than the screen ends in `+N more`.
+Recent lines are not in it.
+
+The HUD curves like the game's: the gauges, the quest list, the speech box
+and the bar of buttons are bent as if drawn on a curved visor. At the
+middle of the screen they are flat; toward the left and right edges they
+lean toward the screen's middle row, a little at a quarter of the way out
+and about 9% at the edge. The text keeps its size and stays sharp, moving
+in small steps instead of tilting, and everything stays on the screen. The
+character is moved with the bend but not bent, and Panel view and the menus
+are flat, and so is the hover card, which stands beside the row as it is
+drawn. A click lands on what is drawn.
+
+The HUD boots in on start and on show, a label that is new or changed
+decodes out of random glyphs, and a finished job or a new alert tag
+brings a short glitch; none of them plays with Windows' animations off,
+or from a click. The hover card is in the HUD's style, with the HUD's
+colours on either theme. A chat's card and a gauge's appear as the speech
+box's dialog does, from the left, with Windows' animations on or off: the
+titles play the line's appear, and a card that expands (or a gauge's
+bars) plays the reply picker's entrance; a marker's card slides in.
+In Character view a chat's card heads like a quest tracker in the style
+of Cyberpunk 2077's: the project as the quest title in yellow capitals,
+the chat's title under it as the objective, in up to two lines. No word
+names the chat's state; the badge left of the objective does: a yellow
+filled `!` at work, a red empty box when it needs you or is cut off, a
+green badge with a tick when done, a dim empty box and the objective in
+the same red, unlit, queued or idle. Resting on
+a row brings this head alone; moving the pointer onto the card expands
+it with the chat's todo list, a row per todo, until the pointer leaves
+the row and the card. The
+one in progress is yellow with a filled badge
+and a `!`, a pending one red with an empty outlined box, a done one
+plain green. A todo that turns done blinks green for two seconds and
+settles; a new one slides in from the right. Past seven rows the done
+ones drop off first and `+N more` counts the rest. Panel view's card
+keeps its `TASKS` line.
+
+Under that, in either view, the open card shows the chat's talk: up to
+ten turns, your prompts and Claude's reply to each, as far back as the
+transcript's last 256 KB reaches. In Character view they are the
+phone's messages, Claude's at the left and yours at the right. The card
+stays as tall as the newest two turns: it opens on them, with a scroll
+bar at the right (in Character view the game's, a red thumb on a dim red
+line); **turn the wheel over the card** to scroll back to older
+turns, and down again to the newest.
+
+**The quest list takes no click.** It is large, so the pointer goes
+through it to whatever is under it, rests and all; resting on a quest
+row still brings its card. **Click the card** to open the chat in VS
+Code, as a tile's open does, and the row blinks again. Under the card is
+a row of keys in the game's style, a cyan disc with a letter and the
+name in red capitals: **OPEN**, **READ** or **UNREAD**, **ARCHIVE** and
+**DELETE** - Panel view's row menu without Snooze, and the bin. Delete
+is for good, with what the chat leaves behind, no second ask. A key the
+chat cannot take now (DELETE or ARCHIVE while it works, waits on you or
+runs in a terminal; READ on a chat that is neither running nor open in
+a VS Code tab) sends
+nothing: it blinks three times, fast, and stays dim while the card is
+up. A stage tag's card has the same keys.
+
+The keys' letters are the game's and the keyboard's: **F** OPEN (ASK on
+a gauge's card), **R** READ or UNREAD, **Z** ARCHIVE, **X** DELETE.
+While the pointer rests on the card, those keys press them; anywhere
+else they type as ever. ARCHIVE and DELETE are **held**, by the mouse or
+the key, for 0.8 s: a cyan ring fills round the disc, and the chat goes
+as it closes. Let go before, and nothing is done. If another program
+already holds one of those letters as its own shortcut, that key does
+not work on the card; the click and hold still do.
+
+A deleted quest brings a **QUEST COMPLETE** banner at the screen's left
+edge, a little above the middle, for about 8 seconds, as the game ends
+a job: a red `CONNECTION` header types out, a gold data shard flies
+together piece by piece, a green shield pops in large and settles, the
+words type out behind a green block and the chat's title comes under
+them in glowing green capitals (two lines at most); it holds, then
+flickers out in steps, the shard and the header going last. A second delete replaces it, and a
+switch to Panel view ends it. With Animations off the banner shows still
+for the same time. Only a quest's DELETE key brings it: a delete from
+Panel view's bin, a refused key, or `chatrm` from a shell does not. It never
+takes the pointer: a click on it lands on what is under it.
+
+A chat new to the quest list brings a **NEW QUEST** banner in the same
+place, for about 6 seconds, as the game starts a job: a red
+`CONNECTION` header types out (its number is the chat's own, the same
+each time), a gold data shard flies together piece by piece, a plus
+pops in and an outlined shield closes round it, the words type out
+behind a yellow block and the chat's title comes under them in white
+capitals; it holds, then the title flickers out, a block eats the words,
+a red bar eats the header back and the shard goes last. The chats there
+when the overlay starts or Character view comes back bring none. Either
+banner replaces the other, and a switch to Panel view ends it; with
+Animations off it shows still for the same time.
+
+A quest archived with the ARCHIVE key under its card brings a **QUEST
+FAILED** banner in the same place, for about 6 seconds, as the game fails
+a job: NEW QUEST's banner in red, a cross in its shield. An archive from
+Panel view's row menu brings none.
+
+Rest the pointer on a quest row for its card, or on a tag for its
+chip and card, as on a tile. The character's lines float beside it in a box with a line
+to its mouth, `Name:` first in cyan and the words in a warm white (a
+warning's name in red); click the box to hurry it on. With no line
 up, the box says the host's status, or asks about the chats the limit
 cut off with **Continue 2** and **Leave them** under it: click one, or
 click the box once and then press **1** or **2** (or the up and down
@@ -2245,14 +2492,34 @@ arrows) and **Enter**. The HUD never takes the keyboard by itself - it
 has the keys only after that click, and only while the box waits on a
 choice; click any other window and the keys are that window's again.
 Right-click the
-character for the tray menu (Lock, Panel view and the rest); unlocked,
-drag it to move the HUD. There is no bar of buttons and no edge to drag
-for rows; folded, it is the tile panel's strip. Switching to Character
-view glitches from the panel into the HUD, to Panel view back; with
-Windows' **Show animations** off (Settings, Accessibility, Visual
-effects) that is a short fade and the dials hold still. The WPF panel
-draws no HUD and has no views to pick; its tray shows the built-in face
-while the native panel is in Panel view.
+character for the menu (Panel view, Settings and the rest). The
+panel's bar of buttons stands along the HUD's top, always, in the HUD's
+style: collapse, the gear (it opens the menu, which has
+the settings, as it does in Panel view), minimize, maximize (the
+console) and close. Drag
+the character to move the HUD; there is no lock to pin it (an older
+`stageLocked` in `data/overlay-state.json` is ignored). There is no edge to drag
+for rows (the menu's Settings has them); folded, it is the tile panel's strip. Switching to Character
+view, or back to Panel view, is a short fade, always. With the menu's
+Settings → **Animations** Off - or As Windows, and Windows' **Animation
+effects** off (Settings, Accessibility, Visual effects) - the box comes
+and goes at once and the HUD holds still. On, the default, ignores
+Windows' setting. "Windows' animations off" below means either.
+
+Click the character - press and let go without moving - and it talks with
+you: its box shows up to five questions, gold ones about your work and blue
+ones just for fun. Click a question, or click the box once and press its
+number (**1** to **5**) and **Enter**. Usage reads every usage window with
+when it resets, chats names the ones that need you, are cut off or are
+working, and the machine reads its memory and the data folder's drive. The
+question you pick stays lit a moment and is cut, the box stays empty a
+moment, and then the character talks on by itself, one box after another, without
+asking anything more: a box is held as long as it takes to read and carries
+no Next; a click on it hurries it. When the talk's last box is done it
+closes. Esc, a click anywhere else or another click on the character closes
+it early, and a second click on the character opens the questions again.
+The built-in skin asks the first three plainly; a skin pack can write its
+own, with the user's own lines in them (docs/skin-pack.md, `dialog`).
 
 **How live "live" is.** Claude Code caches its usage in `~/.claude.json`, but
 only when a window opens its usage view. So that copy can be hours old: on the
@@ -2261,7 +2528,16 @@ overlay asks Claude's usage endpoint itself, the same one `/usage` asks:
 - every five minutes while any chat is working;
 - every fifteen while all are idle, since nothing moves the figure then;
 - straight after a window resets;
-- when you press refresh, or run `chatoverlay -Refresh`.
+- when you press refresh, click a usage gauge (native panel), pick the
+  WPF panel's menu's Refresh usage, or run `chatoverlay -Refresh`.
+
+In the native panel, a click on a gauge asks - press and let go without
+moving; drag from it and the panel moves instead. That is Panel view; in
+Character view the gauge cards let clicks through, and the ASK key under
+a gauge card's hover card asks. While the ask is out Panel view's
+gauges' fills pulse, fading between about half and full over a second, and
+stand still when the answer is in; Character view's gauge cards vanish
+and come back in instead. A gauge's hover says it is a click to ask.
 
 The endpoint is meant for a `/usage` opened now and then. Asked once a minute,
 it refused after about an hour, and then said to wait 48 minutes. When it
@@ -2306,73 +2582,89 @@ sees a token. With no `gh`, or one not logged in (`gh auth login`), there is
 simply no Copilot line; `chatoverlay -CopilotUsage off` stops asking. That
 endpoint is GitHub's own, not a documented one, so it may change under it.
 
-**What it costs.** One hidden `powershell.exe`: 250 to 290 MB of memory and
-some 5% of one processor core, as measured on the machine it was written on.
+**What it costs.** One process, `chatq-overlay.exe`, which starts itself
+again at 100 MB unless `overlay.restartMB` says otherwise (the PowerShell
+host's 250 to 290 MB and 5% of a core, on macOS still, are the old figure).
 It reads a file again only once that file has changed, and a transcript only from
 where it last stopped. The first look at a 20 MB chat reads the last 256 KB.
 
 Settings live in `data/config.json` under `overlay`. `chatoverlay -Theme`,
 `-Opacity`, `-Width`, `-Rows`, `-Compact`, `-ChipDelay`, `-Recent`,
 `-UsageView`, `-Hotkey`, `-ConsoleHotkey`, `-AutoStart`, `-LiveUsage`,
-`-CopilotUsage`, `-CodexUsage` and `-Panel` set theirs and apply them at once; after editing the file
+`-CopilotUsage` and `-CodexUsage` set theirs and apply them at once; after editing the file
 by hand, `chatoverlay -Stop` and start it again. `-Width`, `-Rows`,
 `-ChipDelay` and `-Recent` refuse a value out of range and save nothing
 from that line, as `-Opacity` does; one out of range in the file is held
 to the range.
 
-**The panel in Rust.** On Windows the panel is `chatq-overlay.exe`,
-the same panel drawn in Rust and Slint (native/SPEC.md
-8), in a process of its own beside the hidden PowerShell, which still
-collects the chats and carries out what you click. The console is drawn
-by a second Windows PowerShell, started when you open it and closed with
-its window ([The console](#the-console)). Measured on this PC, the hidden
-PowerShell settles at about 131 MB private, the console's process takes
-about 262 MB while it is open, and the panel itself takes under 4 MB.
-It is the default since 0.11.1; `chatoverlay -Panel ps` (`"panel": "ps"`
-under `overlay`) keeps the WPF panel, and an update leaves that choice
-alone. The VS Code extension carries the exe, with its licence notices,
-and puts both at `bin/<version>/x86_64-pc-windows-msvc/` beside
-`data/`, the version being the script's - removing other versions'
-folders there at the next update, keeping any an exe still runs from. A zip or git install has no
-exe yet (DEFERRED.md), so it draws the WPF panel, quietly; a developer's
-build put at that path is used. Where `config.json` names native itself,
-a missing exe is said once in `data/logs/overlay.log`, and
-`chatoverlay -Panel native` says so too - an overlay already running only
-reloads, as it would come back as the WPF panel anyway. Otherwise a
-running overlay starts again on the panel chosen. After an update, an
-overlay already running 0.11.0 or older restarts as the WPF panel, as
-its old code in memory still defaults to `ps`; the native panel arrives
-at the next fresh start (`chatoverlay -Stop` and start, a reboot) or at the
-0.11.1 host's own restart. From 0.11.1 on, the restart onto new code
-draws the new version's panel, never the old version's build.
+**The panel and host in Rust.** On Windows the overlay is
+`chatq-overlay.exe` ([native/SPEC.md](native/SPEC.md) 3.10 and 8): one
+process that collects the chats, carries out what you click and draws the
+panel in Rust and Slint, with the character's art in Character view
+(7.5 MiB for the built-in skin, up to 64 MiB for a pack, held only while
+that view shows it). Since 0.12.0 it is the only overlay on Windows: the
+PowerShell host and the WPF panel it replaced are gone, with `-Host`,
+`-Panel`, `CHATQ_RUST_HOST=0` and the fuses that fell back to them. What
+is still PowerShell: the launcher (a hidden `powershell.exe` that starts
+the exe and ends once it holds the lock), the host's restart through it,
+the short steps it runs for the work not yet ported, and the console and
+phone setup windows, each in a Windows PowerShell of its own that closes
+with its window ([The console](#the-console)). Measured on this PC, the
+console's process takes about 262 MB while it is open. `"host"` and
+`"panel"` under `overlay` in `config.json` are read as before on macOS,
+which stays PowerShell, and ignored on Windows: `overlay.log` says so once
+a version where `ps` or `shadow` is set, or `CHATQ_RUST_HOST=0` is in the
+environment.
 
-**A native panel that fails is replaced by the WPF one.** An exe that
-will not start - an antivirus or AppLocker blocking it, the exe being
-unsigned (DEFERRED.md) - or a panel that exits 3 times in 10 minutes
-blows the panel's fuse, `data/native/panel-fuse.json`, for this version:
-the WPF panel starts in its place, `data/logs/overlay.log` says why,
-and the tray says so once. The next version tries native again;
-`chatoverlay -Panel native` clears the fuse now and restarts a running
-overlay onto it.
+The VS Code extension carries the exe, with its licence notices, and puts
+both at `bin/<version>/x86_64-pc-windows-msvc/` beside `data/`, the
+version being the script's - removing other versions' folders there at the
+next update, keeping any an exe still runs from.
 
-**The collector in Rust, on trial.** `"host": "shadow"` under `overlay`
-in `config.json` (the default is `"ps"`), with the native panel, starts
-a third process beside the hidden PowerShell: `chatq-overlay.exe
---shadow`, which collects the
-chats the same way in Rust every 2 seconds and only compares. The panel
-still shows what PowerShell collects. It writes two files and nothing
-else: `data/native/overlay-shadow.json`, the last comparison, and
-`data/logs/overlay-shadow.log`, its memory a minute and any difference
-that held two passes. It stops with the overlay. It is there to prove
-the Rust collector before it takes PowerShell's place; leave it off
-unless you want to help check it.
+A git checkout has no `bin/` of its own, so with none there it uses its
+own build,
+`native/overlay/target/x86_64-pc-windows-msvc/release/chatq-overlay.exe`,
+as long as its `--version` is the script's. Build it from the repo's
+root with
+`cargo build --release --manifest-path native/overlay/Cargo.toml --config native/.cargo/config.toml --target x86_64-pc-windows-msvc`.
+The overlay then runs from that file, so stop it before you rebuild:
+Windows will not let cargo replace a running exe. After a version bump
+the build says the old version until rebuilt, and there is no overlay
+until it is.
+
+**No exe for the version, no overlay.** A zip install
+([install.ps1](install.ps1)) or `chatinstall` has no exe, and a checkout
+not rebuilt since a version bump, or a `bin/` that holds only another
+version's, has none for this one. Nothing starts: `data/logs/overlay.log`
+gets one line a version (`data/native/panel-missing.json` keeps which),
+with the command above, or the extension to install, or the path to put
+`chatq-overlay.exe` at; `chatoverlay` and `chatinstall` print the same
+line, and the automatic start with a shell or VS Code window stays quiet
+about it. Auto-continue, live phone alerts and the usage heads-ups run in
+the host, so they stop with it.
+
+**A host or panel that fails gives up.** A Rust host that ends unasked 3
+times in 10 minutes under one version logs the time it may start again and
+starts nothing; a native panel that will not start, or exits 3 times in 10
+minutes, stops the host with a line saying so (an antivirus or AppLocker
+blocking the exe, which is unsigned (DEFERRED.md), looks like that). A
+new shell or VS Code window tries again once the 10 minutes have passed,
+the next version starts with a clean count, and `chatoverlay` by name
+always tries. A start that dies before it takes the lock is one line in
+`overlay.log` and no more. When the act lane's looks fail 3 times in a
+row, the host says so once, in the log and in one balloon, and keeps
+running.
+
+`"hostCheck": true` (`chatoverlay -HostCheck on`) starts a PowerShell
+checker beside the host, about 130 MB while it runs, whose look the host
+compares with its own and logs to `data/logs/overlay-check.log`.
 
 **Skins and the Brain are on their way** for the native panel, and the
 panel loads neither yet. A skin pack - the mascot's faces, lines and
 voice - will go in `data/skins/<id>/` and come out by deleting that
-folder; its format is docs/skin-pack.md, and
+folder; its format is [docs/skin-pack.md](docs/skin-pack.md), and
 `skins/default/` is the plain one built in. The Brain,
-`chatq-brain.exe` in `data/brain/` (native/brain/README.md),
+`chatq-brain.exe` in `data/brain/` ([native/brain/README.md](native/brain/README.md)),
 asks Google's Gemini a few questions about a chat's last turns - did the
 assistant do more than asked, is a reply unread, is a prompt too thin -
 with your Gemini API key in `data/brain/gemini-key`, at about $0.17 per
@@ -2387,7 +2679,7 @@ under `overlay`, like `liveIdle`: `autoContinue`, `"ask"` (the default),
 `"on"` or `"off"` - whether, once the limit is over, the overlay asks to
 continue the chats it cut off ([When the limit is over](#when-the-limit-is-over)),
 chatq continues each by itself ([Auto-continue](#auto-continue)), or they
-are only marked. The settings box's **Cut off** row or
+are only marked. The settings box's **Cut off** row, the native menu's Cut-off chats, or
 `chatq -AutoContinue ask|on|off` sets it and tells a running overlay.
 `false` reads as `"off"`; anything else, `true` included, as `"ask"`: only
 the word `"on"` turns the automatic mode on. Beside it, `autoContinueCrash`:
@@ -2407,12 +2699,15 @@ chatoverlay -Recent 10            # ten chats not open under the rest; 0 for non
 | key | default | |
 |---|---|---|
 | `width` | 380 | macOS: pixels at 100% scaling, 260–800; `chatoverlay -Width 460`. The Windows panel is as wide as a tile, whatever this says |
-| `maxRows` | 8 | 1–30; the rest become `+3 more · 2 idle`, and so do the rows that would run past the screen's bottom from wherever the panel sits. The panel's top or bottom edge (kept as you let go), the settings box, or `chatoverlay -Rows 12` |
-| `opacity` | 0.94 | 0.3–1; the settings box's slider, or `chatoverlay -Opacity 85` |
-| `theme` | `dark` | `dark` is the cyber look: black with neon green lines and project names, off-white text, and hot red for the accent, the edges and under the pointer, the chats' titles in a condensed face (Bahnschrift) in the console; `light` is the plain one, and `system` follows the OS; `chatoverlay -Theme system` |
+| `maxRows` | 8 | 1–30; the rest become `+3 more · 2 idle`, and so do the rows that would run past the screen's bottom from wherever the panel sits. The panel's top or bottom edge (kept as you let go), the settings box or the native menu's Settings, or `chatoverlay -Rows 12` |
+| `opacity` | 0.94 | 0.3–1; the settings box's slider, the native menu's Settings (steps), or `chatoverlay -Opacity 85`. In Character view it fades the gauge and quest windows, the tags and the bar, never the character |
+| `hudSize` | 150 | 50–200 (%); the native menu's Settings → HUD size offers 50, 100, 150 and 200. Scales Character view's HUD (card, speech box, gauges, quests, QUEST COMPLETE, NEW QUEST and QUEST FAILED banners) against the monitor's scale; 150 is the game's size. Panel view, menus and chips are not scaled |
+| `characterSize` | 150 | 50–200 (%); Settings → Character size, the same four. Scales Character view's stage (the character and its tags), as `hudSize` does the HUD; the bar over it stays at the default size |
+| `animations` | `on` | `on`, `off` or `windows`; the native menu's Settings → Animations. Whether the native panel moves: `on` whatever Windows says, `off` never, `windows` as Windows' own Animation effects. The look switch's short fade plays either way |
+| `theme` | `dark` | `dark` is the cyber look: blue-black with cyan lines, project names and accent (a faint cyan under the pointer), warm white text, gold for what waits on you and warns, red for cut off and errors, mint green for work in Panel view (cyan in Character view), the chats' titles in a condensed face (Bahnschrift) in the console; `light` is the plain one, and `system` follows the OS; `chatoverlay -Theme system` |
 | `prompts` | `true` | `false`: compact rows - on macOS and in `-Print` no prompt lines, one line a chat, good for screen sharing. The Windows panel's row is its tile alone either way. Named from when every full row showed its prompt. `chatoverlay -Compact on` |
-| `chipDelayMs` | 400 | 100–3000; how long the pointer rests on a row before its open chip and card come; `chatoverlay -ChipDelay 250` |
-| `recent` | 5 | 0–20; how many chats not open the Recent list shows, 0 for none - in the panel, the console, `-Print` and the phone board alike; the panel's top or bottom edge stretched past the open chats (kept as you let go), the settings box (off, 5, 10), or `chatoverlay -Recent 10` |
+| `chipDelayMs` | 400 | 100–3000; how long the pointer rests on a row before its open chip and card come (the short card; it expands when the pointer moves onto it); `chatoverlay -ChipDelay 250` |
+| `recent` | 5 | 0–20; how many chats not open the Recent list shows, 0 for none - in the panel, the console, `-Print` and the phone board alike; the panel's top or bottom edge stretched past the open chats (kept as you let go), the settings box (off, 5, 10) or the native menu's Settings, or `chatoverlay -Recent 10` |
 | `hotkey` | `Ctrl+Alt+Shift+O` | `chatoverlay -Hotkey Ctrl+Win+F9`; `none` for no key |
 | `consoleHotkey` | `Ctrl+Alt+Shift+Q` | opens the console, or brings it forward when another window covers it; again while it is in front, the panel; `chatoverlay -ConsoleHotkey none` for no key |
 | `cutOff` | `true` | `false`: no cut-off rows; the scan for them still runs while `autoContinue` asks, or auto-continue is on for anything, and stops with all off |
@@ -2421,12 +2716,14 @@ chatoverlay -Recent 10            # ten chats not open under the rest; 0 for non
 | `liveUsage` | `true`, `false` on macOS | `chatoverlay -LiveUsage off` |
 | `copilotUsage` | `true` | `chatoverlay -CopilotUsage off`: no Copilot line, and `gh` never run for it |
 | `codexUsage` | `true` | `chatoverlay -CodexUsage off`: Codex's line only from its rollouts, and `codex app-server` never started for it |
-| `panel` | `native` | Windows: `chatq-overlay.exe` where it is staged ([the panel in Rust](#the-overlay)), the WPF panel where it is not or its fuse is blown; `ps` for the WPF panel always; anything else reads as `native`. `chatoverlay -Panel ps` |
-| `host` | `ps` | Windows, the native panel: `shadow` runs the collector in Rust beside PowerShell's, comparing only ([on trial](#the-overlay)); anything else reads as `ps` |
+| `panel` | `native` | Ignored on Windows since 0.12.0, where the panel is `chatq-overlay.exe` alone ([the panel and host in Rust](#the-overlay)); macOS has no choice either. Still read from the file as before: `ps` is logged once a version as ignored |
+| `host` | `rust` on Windows, `ps` elsewhere | Windows: always the Rust host, `chatq-overlay.exe --host`; `ps` and `shadow` in the file are ignored there, with one line in `data/logs/overlay.log` a version. macOS: `ps`, PowerShell's host, the only one; anything else reads as the default |
+| `hostCheck` | `false` | With the Rust host: a PowerShell checker runs beside it (about 130 MB) and its look is compared with the host's, logged to `data/logs/overlay-check.log`. Read at start. `chatoverlay -HostCheck on` |
+| `stepPowerShell` | none | the full path to a `pwsh.exe` not on the PATH, for the host's one-minute PowerShell steps; without it, pwsh on the PATH or in its standard install, else Windows PowerShell 5.1 |
 | `usageSeconds` | 300 | how often usage is asked while a chat works - Codex's while Codex works (three times that while idle, and for Copilot); 60 at least |
 | `memoryWarn` | 95 | 0–99; the percent of Windows' commit limit in use at which the panel and the tray say memory runs short ([it says so](#the-overlay)); 0 for never |
 | `leakGB` | 2 | 0–64, parts of a GB too; how much one process grows in 10 minutes before the panel and the tray say it keeps growing, memory low or not ([it says so](#the-overlay)); 0 for never |
-| `restartMB` | 300 | 0–4096; the overlay's own private MB after a compaction at which it starts again, given 50 MB over where the run settled and an hour up ([it says so](#the-overlay)); 0 for never |
+| `restartMB` | 300 (macOS's PowerShell host; the Rust host's, Windows, is 100 unless set) | 0–4096; the overlay's own private MB (after a compaction, for PowerShell's host) at which it starts again, given 50 MB over where the run settled and an hour up, and held 10 minutes at most by something under way ([it says so](#the-overlay)); 0 for never |
 | `askAutoSeconds` | 0 | 0–3600; the cut-off ask left unanswered this many seconds continues the chats by itself ([When the limit is over](#when-the-limit-is-over)); 0 for never |
 
 - **Only Claude chats get live rows.** Codex and Copilot write nothing that says a
@@ -3258,15 +3555,17 @@ Claude settings first; it stops until you have.
 
 - Windows PowerShell 5.1 or PowerShell 7. macOS and Linux need PowerShell 7, and
   are untested so far.
-- The overlay's WPF panel runs in Windows PowerShell, which every Windows has,
-  even when started from PowerShell 7: WPF needs it. The native panel,
-  `chatq-overlay.exe`, needs Windows 10 or 11 on x64.
+- The overlay's console and phone setup windows are WPF and run in Windows
+  PowerShell, which every Windows has, even when started from PowerShell 7:
+  WPF needs it. The overlay itself, `chatq-overlay.exe`, needs Windows 10
+  or 11 on x64, and a zip install has none (the VS Code extension carries
+  it).
 - Claude Code 2.1.259 or later for the queue (`--permission-prompts none`).
 
 ## Sponsorship
 
 Not set up yet — the badge above is a placeholder. The options being weighed
-are in DEFERRED.md.
+are in [DEFERRED.md](DEFERRED.md#sponsorship).
 
 ## Licence
 

@@ -21,7 +21,7 @@ $script:ChatOverlayCmdPath = Join-Path $script:ChatqData 'overlay-cmd'
 $script:ChatOverlayCmdStuck = $false
 # The native panel's console, in a process of its own (Start-ChatConsoleHost):
 # its word back to its host - { pid; at; shown; underWay; events; request },
-# at in epoch ms (Save-ChatConsoleUi, Read-ChatConsoleUi) - and the lock that
+# at in epoch ms (Save-ChatConsoleUi) - and the lock that
 # keeps it to one
 $script:ChatConsoleUiPath = Join-Path $script:ChatqData 'console-ui.json'
 $script:ChatConsoleLockPath = Join-Path $script:ChatqData 'console.lock'
@@ -37,6 +37,11 @@ $script:ChatOverlayScanBudget = 16MB
 # for the next: the Windows panel draws on the same thread
 $script:ChatOverlaySliceMs = 250
 $script:ChatOverlayStopWaitMs = 8000
+# How long a Rust host's start is watched for it to take overlay.lock
+# (Wait-ChatOverlayRustStart): the host tries the lock first (5 tries 200 ms
+# apart), so longer is an exe that is not working; the margin is an antivirus
+# scan on a first run
+$script:ChatOverlayRustWatchMs = 15000
 # A row's prompt line while its chat runs a command not yet written down.
 # Nothing on disk names it until it ends, so it is not guessed at.
 $script:ChatOverlayPendingText = 'command running'
@@ -49,6 +54,13 @@ $script:ChatOverlayBytesRead = 0
 # tests: how many times a hover card read a transcript (Read-ChatOverlayCardTail)
 $script:ChatOverlayCardReads = 0
 $script:ChatOverlaySpawn = $null
+# tests: a stand-in start of the Rust host's exe, given its exe and -Open;
+# returns what stands for the process (HasExited, ExitCode, Id) or the
+# message of a start that failed
+$script:ChatOverlayRustSpawnSeam = $null
+# set by every Start-ChatOverlayProcess: whether it started nothing for want of
+# chatq-overlay.exe for this version (Start-ChatOverlayAuto says off, not failed)
+$script:ChatOverlayNoExe = $false
 $script:ChatOverlayUsageSeam = $null
 # tests: a stand-in for gh's answer about Copilot
 $script:ChatOverlayCopilotSeam = $null
@@ -60,11 +72,6 @@ $script:ChatOverlaySystemDarkSeam = $null
 # tests: the screen under the panel, given its rect, so the buttons can be
 # placed on a screen that is not there
 $script:ChatOverlayWorkAreaSeam = $null
-# tests: whether a mouse button is held, for the pointer check
-# (Update-ChatOverlayHover), whatever the real mouse's
-$script:ChatOverlayMouseDownSeam = $null
-# tests: where the pointer is, for the same check, wherever the real one is
-$script:ChatOverlayPointerSeam = $null
 # tests: the pid whose window is in front (Get-ChatForegroundPid)
 $script:ChatForegroundSeam = $null
 # tests: the processes the unread rule walks chats' parents in, shaped as
@@ -77,10 +84,8 @@ $script:ChatOverlayFolderSeam = $null
 $script:ChatOverlayNetDriveSeam = $null
 # how long whether a Recent chat's folder is there is taken as known
 $script:ChatOverlayFolderTtlSeconds = 180
-# tests: when this sign-in began (Get-ChatqSignInAt), and whether a full
-# screen app or presentation holds the screen (Test-ChatOverlayFullScreen)
+# tests: when this sign-in began (Get-ChatqSignInAt)
 $script:ChatqSignInSeam = $null
-$script:ChatOverlayFullScreenSeam = $null
 # tests: stand-ins for the calls that bring an open's VS Code window to the
 # front, given the call, the window and the other (Invoke-ChatOverlayFrontCall),
 # and for the leave given VS Code's processes at the click, given their pids
@@ -92,10 +97,12 @@ $script:ChatOverlayGrantSeam = $null
 # or $null (Get-ChatMemoryCommit), for the programs holding the most
 # memory (Get-ChatMemoryTop), and for each program's bytes summed by name
 # with each of its processes', @{ <name> = @{ Bytes; Procs = @{ <pid> =
-# bytes } } } (Get-ChatMemorySums)
+# bytes } } } (Get-ChatMemorySums), or under that for Windows' processes
+# themselves, each with ProcessName, Id, PrivateMemorySize64 and Dispose
 $script:ChatMemorySeam = $null
 $script:ChatMemoryTopSeam = $null
 $script:ChatMemorySumsSeam = $null
+$script:ChatMemoryProcsSeam = $null
 
 function Get-ChatOverlayConfig {
     # config.json -> overlay, with the defaults filled in and every number
@@ -108,14 +115,23 @@ function Get-ChatOverlayConfig {
     $get = { param($n, $d) if ($o.PSObject.Properties[$n] -and $null -ne $o.$n) { $o.$n } else { $d } }
     $clamp = { param($v, $lo, $hi) [Math]::Max($lo, [Math]::Min($hi, $v)) }
     $theme = ([string](& $get 'theme' 'dark')).ToLowerInvariant()
+    $anim = ([string](& $get 'animations' 'on')).ToLowerInvariant()
     $view = ([string](& $get 'usageView' 'lines')).ToLowerInvariant()
     $panel = ([string](& $get 'panel' '')).ToLowerInvariant()
     # not $host: that is PowerShell's own
-    $hostWord = ([string](& $get 'host' 'ps')).ToLowerInvariant()
+    $hostDef = if ($script:ChatqIsWindows) { 'rust' } else { 'ps' }
+    $hostWord = ([string](& $get 'host' $hostDef)).ToLowerInvariant()
     [pscustomobject]@{
         width        = [int](& $clamp ([int](& $get 'width' 380)) 260 800)
         maxRows      = [int](& $clamp ([int](& $get 'maxRows' 8)) 1 30)
         opacity      = [double](& $clamp ([double](& $get 'opacity' 0.94)) 0.3 1.0)
+        # Character view's HUD size, %: the panel takes 50, 100, 150 or 200
+        hudSize      = [int](& $clamp ([int](& $get 'hudSize' 150)) 50 200)
+        # Character view's character size, %: the stage and its bar, as hudSize
+        characterSize = [int](& $clamp ([int](& $get 'characterSize' 150)) 50 200)
+        # the native panel's motion: on, off, or windows - Windows' own
+        # "Animation effects", which the panel otherwise ignores
+        animations   = $(if ($anim -in 'on', 'off', 'windows') { $anim } else { 'on' })
         # dark, light, or system - Windows' own app mode, or macOS's
         theme        = $(if ($theme -in 'dark', 'light', 'system') { $theme } else { 'dark' })
         # false: compact rows, one line a chat with no prompt under it
@@ -168,18 +184,20 @@ function Get-ChatOverlayConfig {
         # again, given back; 0 is never (Update-ChatOverlayRestartDue)
         restartMB    = [int](& $clamp ([int](& $get 'restartMB' 300)) 0 4096)
         # the Windows panel: native (the default since 0.11.1) -
-        # chatq-overlay.exe beside a headless host, where one is staged for
-        # this version and its fuse holds (Get-ChatOverlayPanelExe) - or ps,
-        # the WPF one, which only chatoverlay -Panel ps writes. Anything else
-        # reads as the default.
+        # chatq-overlay.exe, where one is staged for this version, or a
+        # checkout's build says it (Get-ChatOverlayPanelExe) - or ps, the
+        # WPF one, which Windows ignores since 0.12.0 (config.rs reads the
+        # same words, so they stay; Write-ChatOverlayPsHostNote). Anything
+        # else reads as the default.
         panel        = $(if ($panel -in 'ps', 'native') { $panel } else { 'native' })
-        # whether config.json names the panel itself: a missing exe is said
-        # in overlay.log only for a native asked for by name
+        # whether config.json names the panel itself
         panelChosen  = [bool]($panel -in 'ps', 'native')
-        # ps, or shadow: the Rust collector run beside this one, which
-        # compares its snapshot with overlay.json and writes only its own
-        # two files (Start-ChatOverlayShadow). Anything else reads as ps.
-        host         = $(if ($hostWord -in 'ps', 'shadow') { $hostWord } else { 'ps' })
+        # rust (the default on Windows): chatq-overlay.exe the host; ps:
+        # macOS' only - Windows ignores it since 0.12.0
+        # (Write-ChatOverlayPsHostNote); shadow: the Rust collector run beside
+        # PowerShell's, ignored there too. Anything else reads as the
+        # default.
+        host         = $(if ($hostWord -in 'ps', 'shadow', 'rust') { $hostWord } else { $hostDef })
     }
 }
 
@@ -221,7 +239,8 @@ function Read-ChatOverlayState {
     # Skin menu pick (App::skin_verb), kept through a save made here; no
     # key where none was picked. disguise, disguiseAt: its Panel view, on
     # or off (App::disguise), and since when, kept the same way, no key
-    # where the panel wrote none. unmask, unmaskAt: the earlier 0.11.11 build's
+    # where the panel wrote none. locked is the WPF panel's (the native panel
+    # has no lock and drops it). unmask, unmaskAt: the earlier 0.11.11 build's
     # disguise, kept for the native panel to read as the pack picked
     # (app.read_place) - else a save here would lose the pack under it.
     $s = Read-ChatqJson $script:ChatOverlayStatePath
@@ -574,6 +593,7 @@ function Complete-ChatqCodexUsageFetch {
     return $res
 }
 
+# Deferred: DEFERRED.md "The overlay's cached usage and `CLAUDE_CONFIG_DIR` set to `~/.claude`"
 function Get-ChatqClaudeJsonPath {
     # .claude.json sits beside the config dir by default (~/.claude.json) and
     # inside it when CLAUDE_CONFIG_DIR moves it
@@ -1906,8 +1926,12 @@ function Update-ChatOverlayUnread {
     would say something it cannot know. Windows only (Invoke-ChatOverlayCycle
     skips it elsewhere): the macOS panel has no chip to clear a dot, and no
     window in front to spare a chat one.
+    A chat with a VS Code tab in -Tabs (Read-ChatOpenTabs) is judged by that
+    tab, not its program: another tab of the same VS Code in front leaves
+    it unseen. Its tab coming to the front clears its dot - coming, kept in
+    $Ctx.TabFront, so a Mark unread on the tab in front holds.
     #>
-    param($Ctx, [object[]]$Live)
+    param($Ctx, [object[]]$Live, [object[]]$Tabs)
     $rank = @{ waiting = 0; busy = 1; idle = 2 }
     $now = @{}
     $mine = @{}
@@ -1923,18 +1947,37 @@ function Update-ChatOverlayUnread {
     }
     $was = if ($Ctx.LastStatus) { $Ctx.LastStatus } else { @{} }
     if (-not $Ctx.Unread) { $Ctx.Unread = @{} }
+    # sid to whether any of its tabs is in front
+    $tabbed = @{}
+    foreach ($t in @($Tabs)) {
+        if (-not $t) { continue }
+        $ts = [string](Get-ChatField $t 'SessionId')
+        $tabbed[$ts] = [bool]$tabbed[$ts] -or [bool](Get-ChatField $t 'Front')
+    }
     $front = $null
     # the pass's one process snapshot, taken only if a chain is wanted
     $table = @{ Taken = $false; Table = $null }
     foreach ($sid in @($now.Keys)) {
         if ($now[$sid] -eq 'busy') { $Ctx.Unread.Remove($sid) }
         elseif ($now[$sid] -eq 'idle' -and $was[$sid] -in 'busy', 'waiting') {
+            if ($tabbed.ContainsKey($sid)) {
+                if (-not $tabbed[$sid]) { $Ctx.Unread[$sid] = $true }
+                continue
+            }
             # read once a pass, and only when some chat just finished
             if ($null -eq $front) { $front = Get-ChatForegroundPid }
             if (-not (Test-ChatOverlayInFront $Ctx $mine[$sid].ToArray() $front $table)) { $Ctx.Unread[$sid] = $true }
         }
     }
-    foreach ($k in @($Ctx.Unread.Keys)) { if (-not $now.ContainsKey($k)) { $Ctx.Unread.Remove($k) } }
+    $came = @{}
+    foreach ($ts in @($tabbed.Keys)) {
+        if (-not $tabbed[$ts]) { continue }
+        if (-not ($Ctx.TabFront -and $Ctx.TabFront[$ts])) { $Ctx.Unread.Remove($ts) }
+        $came[$ts] = $true
+    }
+    $Ctx.TabFront = $came
+    # a dot set by hand on a chat open in a tab stays while the tab does
+    foreach ($k in @($Ctx.Unread.Keys)) { if (-not $now.ContainsKey($k) -and -not $tabbed.ContainsKey($k)) { $Ctx.Unread.Remove($k) } }
     if ($Ctx.Chains) { foreach ($k in @($Ctx.Chains.Keys)) { if (-not $procs[$k]) { $Ctx.Chains.Remove($k) } } }
     $Ctx.LastStatus = $now
 }
@@ -1951,7 +1994,8 @@ function Read-ChatOverlayRecentItem {
     out: a side transcript (its first line says isSidechain), an empty one
     (64 KB or less with no user or assistant record: what a panel leaves on
     opening a chat whose transcript was gone), or one that names no folder -
-    the open chip finds the chat's window by it. The folder is the first
+    the open chip finds the chat's window by it - or one a /clear started
+    that has no real prompt yet. The folder is the first
     "cwd" in the head. Whether that folder is there is not asked here: what
     this says is kept until the transcript moves, and a folder can go or
     come back meanwhile, so the build asks apart (Update-ChatOverlayRecent). The
@@ -1982,10 +2026,17 @@ function Read-ChatOverlayRecentItem {
     if (-not $title) { $title = $r.AiTitle }
     if (-not $title) {
         # no @(), as in Update-ChatOverlayText
+        $cleared = $false
         foreach ($l in (Get-ChatJsonLines $c.Head '"type":"user"' 4)) {
             $t = Read-ClaudePrompt $l
             if ($t) { $title = $t; break }
+            if ($l -like '*<command-name>/clear</command-name>*') { $cleared = $true }
         }
+        # The session Claude Code's own /clear starts holds only the command
+        # and its noise until the user types: no chat yet, so not listed. Only
+        # /clear, the one command Claude Code itself opens a session with; once
+        # a real prompt follows it is a title and the chat is listed.
+        if (-not $title -and $cleared) { return $null }
     }
     return [pscustomobject]@{ Id = $File.BaseName; Cwd = $cwd; Title = $title; Mtime = $File.LastWriteTime; ActiveAt = $r.ActiveAt }
 }
@@ -2026,6 +2077,7 @@ function Split-ChatOverlayRecent {
 
 # Deferred: DEFERRED.md "Recent and the picker read the transcripts, not the index"
 # Deferred: DEFERRED.md "Codex chats on the phone board"
+# Deferred: DEFERRED.md "A chat open in a bare root, and the overlay's rows"
 function Update-ChatOverlayRecent {
     <#
     The Recent list in $Ctx.Recent: the newest Claude chats not open, for
@@ -2323,8 +2375,9 @@ function Get-ChatOverlayRowClock {
 function Format-ChatOverlayRowClock {
     # A row clock's five characters (Get-ChatOverlayRowClock's spec, at
     # -NowMs): hours h minutes - minutes:seconds under an hour where the
-    # spec says Live, as the hover card's call clock does - and past 99
-    # hours days d hours, the days capped at 99. A
+    # spec says Live, as the hover card's call clock does - and from a
+    # day days d hours, as a chat's age turns to days (Get-ChatAge), the
+    # days capped at 99. A
     # countdown rounds its minutes up, so it reads 0h00 only at the time
     # itself, and wears a minus where the first digit is blank. Past its
     # time it counts up from From, or holds at dashes; dashes too for no
@@ -2338,7 +2391,7 @@ function Format-ChatOverlayRowClock {
     if ($Spec.Live -and $sec -lt 3600) { $hi = [int64][Math]::Floor($sec / 60); $lo = $sec % 60; $sep = ':' }
     else {
         $min = if ($down) { [int64][Math]::Ceiling($sec / 60) } else { [int64][Math]::Floor($sec / 60) }
-        if ($min -lt 6000) { $hi = [int64][Math]::Floor($min / 60); $lo = $min % 60; $sep = 'h' }
+        if ($min -lt 1440) { $hi = [int64][Math]::Floor($min / 60); $lo = $min % 60; $sep = 'h' }
         else { $hrs = [int64][Math]::Floor($min / 60); $hi = [Math]::Min([int64]99, [int64][Math]::Floor($hrs / 24)); $lo = $hrs % 24; $sep = 'd' }
     }
     $head = if ($hi -ge 10) { '{0:D2}' -f $hi } elseif ($down) { "-$hi" } else { " $hi" }
@@ -2358,13 +2411,15 @@ function Read-ChatOpenTabs {
     <#
     The Claude tabs VS Code windows hold with no process behind them, as
     each window's extension writes them to open-tabs/<its ext host pid>.json
-    (extension.js writeTabs): @{ SessionId; Cwd; Label; Window; HostPid } a
-    tab, only those whose label names one chat in the window's folders.
+    (extension.js writeTabs): @{ SessionId; Cwd; Label; Window; HostPid;
+    Front } a tab, only those whose label names one chat in the window's
+    folders. Front: the tab in front of a focused window for a second
+    (extension.js lookFront), which Update-ChatOverlayUnread reads.
     Read as reload-pending's are (Read-ChatHostFiles): a file whose host
     pid is gone, or alive but started well apart from the file's started (a
     pid reused), is removed; one caught mid-write is skipped, the next look
     has it. One tab a session id, the first file's: a chat in two windows
-    is one row.
+    is one row - in front where either tab is.
     #>
     param([string]$Dir = $script:ChatOverlayOpenTabsDir, [datetime]$Now = (Get-Date))
     $out = [System.Collections.Generic.List[object]]::new()
@@ -2373,18 +2428,25 @@ function Read-ChatOpenTabs {
         $r = $h.Data
         foreach ($t in @(Get-ChatField $r 'tabs')) {
             $sid = [string](Get-ChatField $t 'sessionId')
-            if ($sid -notmatch '^[0-9a-fA-F-]{36}$' -or $seen[$sid]) { continue }
-            $seen[$sid] = $true
-            $out.Add([pscustomobject]@{
-                    SessionId = $sid; Cwd = [string](Get-ChatField $t 'cwd'); Label = [string](Get-ChatField $t 'label')
-                    Window = [string](Get-ChatField $r 'window'); HostPid = $h.HostPid
-                })
+            if ($sid -notmatch '^[0-9a-fA-F-]{36}$') { continue }
+            $front = [bool](Get-ChatField $t 'front')
+            if ($seen[$sid]) {
+                if ($front) { $seen[$sid].Front = $true }
+                continue
+            }
+            $tab = [pscustomobject]@{
+                SessionId = $sid; Cwd = [string](Get-ChatField $t 'cwd'); Label = [string](Get-ChatField $t 'label')
+                Window = [string](Get-ChatField $r 'window'); HostPid = $h.HostPid; Front = $front
+            }
+            $seen[$sid] = $tab
+            $out.Add($tab)
         }
     }
     # unrolled: callers take it as @(Read-ChatOpenTabs)
     return $out.ToArray()
 }
 
+# Deferred: DEFERRED.md "A chat open in a bare root, and the overlay's rows"
 function Get-ChatOverlayRows {
     <#
     One row per chat, most urgent first. A chat open in two windows is one
@@ -2490,6 +2552,9 @@ function Get-ChatOverlayRows {
             detail = $detail; since = $since; sessionId = $s.SessionId; pids = @($s.Pid); cwd = [string]$s.Cwd; job = $null; order = 0; stateText = ''
             where = $where; unread = [bool]($Unread -and $Unread[[string]$s.SessionId])
             mode = $(if ($t -and $t.Mode) { [string]$t.Mode } else { $null })
+            # false while the title is still the first prompt: the overlay's
+            # NEW QUEST banner waits for the AI's (card::titled)
+            titled = [bool](-not $t -or $t.CustomTitle -or $t.Sidecar -or $t.AiTitle)
         }
     }
     # A VS Code tab with no process behind it (Read-ChatOpenTabs): a
@@ -2511,7 +2576,7 @@ function Get-ChatOverlayRows {
             project = $(if ($tb.Cwd) { Split-Path ([string]$tb.Cwd).TrimEnd('\', '/') -Leaf } else { '' })
             title = (Format-ChatTitle ([string]$title) 80); prompt = $prompt; promptKind = $t.PromptKind
             detail = $null; since = $(if ($t.ActiveAt) { [int64]$t.ActiveAt } elseif ($t.Mtime) { & $ms $t.Mtime } else { $null }); sessionId = $sid; pids = @(); cwd = [string]$tb.Cwd; job = $null; order = 0; stateText = ''
-            where = 'vscode'; unread = $false
+            where = 'vscode'; unread = [bool]($Unread -and $Unread[$sid])
             mode = $(if ($t.Mode) { [string]$t.Mode } else { $null })
             tab = $true
         }
@@ -2978,7 +3043,6 @@ function Invoke-ChatOverlayCycle {
     # a chat started or stopped working: a continue that ran in under a
     # minute would otherwise bring its magenta row back until the next look.
     $cutSig = (@($live | ForEach-Object { "$($_.SessionId)=$($_.Status)" } | Sort-Object) -join ',') + "|$($Ctx.JobsSig)"
-    if ($cutSig -ne $Ctx.CutSig) { $Ctx.CutSig = $cutSig; $Ctx.CutAt = [datetime]::MinValue }
     # The look serves the magenta rows (cutOff), the reset ask and - on a
     # host that queues - the automatic mode and the crash continue alike,
     # so it runs while any is on.
@@ -2989,10 +3053,10 @@ function Invoke-ChatOverlayCycle {
     # leave those chats to be asked about, then continued a look later
     $crashOn = $Ctx.WantAuto -and [bool]$Ctx.Config.autoContinueCrash
     $crashWant = $crashOn -and -not $Peek
-    if (-not $Ctx.Config.cutOff -and -not $askAny -and -not $autoWant -and -not $crashOn) { $Ctx.CutScan = @(); $Ctx.RestartScan = @() }
-    elseif ((($now - $Ctx.CutAt).TotalSeconds -ge 60 -or ($Ctx.CutAgain -and $now -ge $Ctx.CutAgain)) -and -not ($Peek -and $crashOn)) {
-        $Ctx.CutAt = $now
-        $Ctx.CutAgain = $null
+    $lookOn = [bool]($Ctx.Config.cutOff -or $askAny -or $autoWant -or $crashOn)
+    $due = Test-ChatOverlayLookDue $Ctx $cutSig $lookOn $now -Hold:($Peek -and $crashOn)
+    if ($due -eq 'off') { $Ctx.CutScan = @(); $Ctx.RestartScan = @() }
+    elseif ($due -eq 'look') {
         $t0 = $sw.ElapsedMilliseconds
         # a chat at work is not cut off, and its transcript moves all the time
         $working = @($live | Where-Object { $_.Status -in 'busy', 'waiting' } | ForEach-Object { [string]$_.SessionId })
@@ -3113,7 +3177,7 @@ function Invoke-ChatOverlayCycle {
     # Windows only: off it, no chip opens a chat to clear a dot, and no
     # window in front is read to spare one, so every chat that finished a
     # turn would carry it for good
-    if ($Ctx.WantUnread) { Update-ChatOverlayUnread $Ctx $live }
+    if ($Ctx.WantUnread) { Update-ChatOverlayUnread $Ctx $live @($Ctx.Tabs) }
     if ($Ctx.WantPhone) { try { Update-ChatqLiveAlerts $Ctx $live } catch { } }
     # The reset ask on the phone: one alert for the cut-offs announced here,
     # once you are away. One answered or gone meanwhile drops out; sent or
@@ -3263,6 +3327,28 @@ function Invoke-ChatOverlayCycle {
         catch { Write-ChatOverlayLog "overlay.json: $($_.Exception.Message)" }
     }
     return $snap
+}
+
+function Test-ChatOverlayLookDue {
+    <#
+    The cut-off look's cadence (Invoke-ChatOverlayCycle; the Rust host's
+    holds to it, native/overlay/collect/src/host/look.rs): -CutSig, the
+    live chats' states and the queue's JobsSig, other than the last pass's
+    makes the look due at once (CutAt to MinValue); else it is due a minute
+    after the last, or at CutAgain. -On: anything the look serves is on;
+    -Hold: a -Peek pass while the crash continue is on, which takes no
+    look. Returns off - nothing it serves is on, the scans to be emptied -
+    look, CutAt now and CutAgain cleared, or wait. Pure but for $Ctx.
+    #>
+    param($Ctx, [string]$CutSig, [bool]$On, [datetime]$Now, [switch]$Hold)
+    if ($CutSig -ne $Ctx.CutSig) { $Ctx.CutSig = $CutSig; $Ctx.CutAt = [datetime]::MinValue }
+    if (-not $On) { return 'off' }
+    if ((($Now - $Ctx.CutAt).TotalSeconds -ge 60 -or ($Ctx.CutAgain -and $Now -ge $Ctx.CutAgain)) -and -not $Hold) {
+        $Ctx.CutAt = $Now
+        $Ctx.CutAgain = $null
+        return 'look'
+    }
+    return 'wait'
 }
 
 function Update-ChatOverlayAskTimer {
@@ -3523,9 +3609,10 @@ function Test-ChatOverlayVerbArg {
     keys, as it drew them: "ask-go k1,k2". The headless host's panel names
     what its click was on (Invoke-ChatOverlayPanelVerb): "opened <key>
     <exit> [front|behind|none|looking]" or "opened <key> behind|late|nostart",
-    "delete <key>", "card <key>", "reload-answer <pid>:<id> reload|later",
+    "delete <key>", "card <key>", "skin <id>" (a pack's id, written by
+    chatq-overlay --skin-import for the panel), "reload-answer <pid>:<id> reload|later",
     "auto-chip <key> dont|continue", and a setting of its box, "config
-    opacity|maxRows|theme|recent <value>" - a key as a row's (s:<id>,
+    opacity|maxRows|theme|recent|hudSize|characterSize|animations <value>" - a key as a row's (s:<id>,
     c:<id>, j:<id>, recent:<id>). No other verb takes any. Pure.
     #>
     param([string]$Verb, [string]$Arg)
@@ -3533,10 +3620,10 @@ function Test-ChatOverlayVerbArg {
     switch -CaseSensitive ($Verb) {
         { $_ -cin 'ask-go', 'ask-leave' } { return ($Arg -cmatch '^[0-9A-Za-z_,-]{1,8000}$') }
         'opened' { return ($Arg -cmatch "^$key (-?[0-9]{1,5}( (front|behind|none|looking))?|behind|late|nostart)$") }
-        { $_ -cin 'delete', 'card' } { return ($Arg -cmatch "^$key$") }
+        { $_ -cin 'delete', 'card', 'skin' } { return ($Arg -cmatch "^$key$") }
         'reload-answer' { return ($Arg -cmatch "^$key (reload|later)$") }
         'auto-chip' { return ($Arg -cmatch "^$key (dont|continue)$") }
-        'config' { return ($Arg -cmatch '^(opacity [0-9.]{1,6}|maxRows [0-9]{1,2}|theme (dark|light|system)|recent [0-9]{1,2})$') }
+        'config' { return ($Arg -cmatch '^(opacity [0-9.]{1,6}|maxRows [0-9]{1,2}|theme (dark|light|system)|recent [0-9]{1,2}|hudSize (50|100|150|200)|characterSize (50|100|150|200)|animations (on|off|windows))$') }
     }
     return $false
 }
@@ -3765,6 +3852,9 @@ $script:ChatOverlayToolRx = [regex]'"id":"([^"]+)","name":"([^"]+)","input":'
 $script:ChatOverlayTextRx = [regex]'"text":"([^"\\]*(?:\\.[^"\\]*)*)"'
 $script:ChatOverlayStringRx = [regex]'\G"([^"\\]*(?:\\.[^"\\]*)*)"'
 $script:ChatOverlayLastPromptRx = [regex]'"lastPrompt":"([^"\\]*(?:\\.[^"\\]*)*)"'
+# a card's talk before the newest prompt and reply (Read-ChatOverlayCardTail):
+# ten turns in all, which the card scrolls
+$script:ChatOverlayCardTalk = 8
 
 function Get-ChatOverlayJsonText {
     # The first line of a JSON string as it sits between its quotes, escapes
@@ -3837,13 +3927,15 @@ function Get-ChatOverlayCardPrompt {
     if ($c -lt 0) { return $null }
     $c += 10
     $words = [System.Collections.Generic.List[string]]::new()
-    $m = $script:ChatOverlayStringRx.Match($Text, $c, $End - $c)
+    # on a cut of -Text: Regex.Match(s, i, n) on the whole window is slow
+    # on pwsh 7.4 (Read-ChatOverlayCardTail)
+    $m = $script:ChatOverlayStringRx.Match($Text.Substring($c, $End - $c))
     if ($m.Success) { $words.Add((Convert-ChatJsonEscaped $m.Groups[1].Value)) }
     else {
         # the record's own keys follow its message, its uuid first
         $u = $Text.IndexOf('"uuid":"', $c, $End - $c, $ord)
         if ($u -lt 0) { $u = $End }
-        $m = $script:ChatOverlayTextRx.Match($Text, $c, $u - $c)
+        $m = $script:ChatOverlayTextRx.Match($Text.Substring($c, $u - $c))
         while ($m.Success) {
             $w = Convert-ChatJsonEscaped $m.Groups[1].Value
             if ($w -notmatch '^\s*<(?:ide_[a-z_]+|system-reminder)>') { $words.Add($w) }
@@ -3881,14 +3973,22 @@ function Read-ChatOverlayCardTail {
                  PromptAt, when, words or none. LastPrompt: Claude Code's
                  own copy of it, the newest last-prompt record's, cut at
                  200 characters.
+      Talk       the talk before those two, the older first, at most
+                 $ChatOverlayCardTalk: @{ Who; Text; At }, Who YOU for a
+                 prompt in words, CLAUDE for a turn's last text - as far
+                 back as the window reaches, which grows four times at a
+                 time, up to 4 MB, while it holds fewer
       Stopped    the newest record is you stopping it: Esc, Stop, a tool call
                  turned down; StoppedAt, when
-      Todo       the newest todo list in the window: @{ Done; Count; Active }
+      Todo       the newest todo list in the window: @{ Done; Count; Active;
+                 Items }, Items the list in its own order, as written:
+                 @{ Text; State }, Text a todo's content, State done, doing
+                 or todo for completed, in_progress or pending
     A side chat's lines - a subagent's - are passed over.
     #>
-    param([string]$Path, [int]$Size = 262144)
+    param([string]$Path, [int]$Size = 262144, [switch]$Grown)
     $out = [pscustomobject]@{ Length = [int64]0; Steps = @(); Open = $null; Reply = $null; ReplyAt = $null; Prompt = $null; PromptAt = $null
-        LastPrompt = $null; Stopped = $false; StoppedAt = $null; Todo = $null }
+        LastPrompt = $null; Stopped = $false; StoppedAt = $null; Todo = $null; Talk = @() }
     try { $fs = Open-ChatRead $Path } catch { return $out }
     try {
         $out.Length = $fs.Length
@@ -3907,7 +4007,12 @@ function Read-ChatOverlayCardTail {
     if ($n -lt $out.Length -and $stop -eq 0) { return $out }
     $k = $t.LastIndexOf('"type":"last-prompt"', $ord)
     if ($k -ge $stop) {
-        $m = $script:ChatOverlayLastPromptRx.Match($t, $k, [Math]::Min(4096, $t.Length - $k))
+        # matched on a cut of the window, never on the window with a start:
+        # pwsh 7.4 takes 10-25 ms a call to hand a 1 MB string to
+        # Regex.Match(s, i, n) or [string]::CompareOrdinal (5.1 takes
+        # microseconds), and the card step, which runs on pwsh 7, ran past
+        # its 30 s on a long chat. Instance IndexOf and Substring stay fast
+        $m = $script:ChatOverlayLastPromptRx.Match($t.Substring($k, [Math]::Min(4096, $t.Length - $k)))
         if ($m.Success) {
             $lp = ((Convert-ChatJsonEscaped $m.Groups[1].Value) -replace '\s+', ' ').Trim()
             if ($lp -and -not (Test-ChatNoise $lp)) { $out.LastPrompt = $lp }
@@ -3927,6 +4032,10 @@ function Read-ChatOverlayCardTail {
                 $out.Todo = [pscustomobject]@{
                     Done = @($todos | Where-Object { [string]$_.status -eq 'completed' }).Count; Count = $todos.Count
                     Active = $(if ($doing) { if ($doing.activeForm) { [string]$doing.activeForm } else { [string]$doing.content } } else { $null })
+                    Items = @(foreach ($i in $todos) {
+                            $s = [string]$i.status
+                            [pscustomobject]@{ Text = [string]$i.content; State = $(if ($s -eq 'completed') { 'done' } elseif ($s -eq 'in_progress') { 'doing' } else { 'todo' }) }
+                        })
                 }
             }
         }
@@ -3936,6 +4045,8 @@ function Read-ChatOverlayCardTail {
     $front = $true      # nothing met yet but tool calls and their results
     $newest = $true     # no record met yet that says anything
     $turn = $true       # still in the newest turn: no prompt met
+    $said = $false      # this turn's last text met already
+    $talk = [System.Collections.Generic.List[object]]::new()
     $e = $t.LastIndexOf([char]10)
     while ($e -ge $stop) {
         $s = if ($e -gt 0) { $t.LastIndexOf([char]10, $e - 1) + 1 } else { 0 }
@@ -3951,14 +4062,15 @@ function Read-ChatOverlayCardTail {
             $c = $t.IndexOf('"content":[{"type":"', $s, $head, $ord)
             if ($c -lt 0 -or $t.IndexOf('"model":"<synthetic>"', $s, $head, $ord) -ge 0) { $front = $false; continue }
             $c += 20
-            if ([string]::CompareOrdinal($t, $c, 'tool_use"', 0, 9) -eq 0) {
-                $m = $script:ChatOverlayToolRx.Match($t, $c, [Math]::Min($end - $c, 1024))
+            # the kind at $c: IndexOf, not CompareOrdinal (the Match above)
+            if ($t.IndexOf('tool_use"', $c, [Math]::Min(9, $end - $c), $ord) -eq $c) {
+                $m = $script:ChatOverlayToolRx.Match($t.Substring($c, [Math]::Min($end - $c, 1024)))
                 if (-not $m.Success) { continue }
                 $id = $m.Groups[1].Value
                 # a batch's calls each get a line, its results after them all
                 $open = $front -and -not $seen.Contains($id)
                 if ($turn -and ($steps.Count -lt 4 -or $open)) {
-                    $j = $m.Index + $m.Length
+                    $j = $c + $m.Index + $m.Length
                     $step = [pscustomobject]@{ Id = $id; Name = $m.Groups[2].Value; At = (Get-ChatOverlayCardStamp $t $s $end -Last)
                         Arg = (Get-ChatOverlayToolArg $m.Groups[2].Value $t.Substring($j, [Math]::Min(6000, $end - $j)))
                     }
@@ -3968,10 +4080,17 @@ function Read-ChatOverlayCardTail {
                 continue
             }
             $front = $false
-            if (-not $out.Reply -and [string]::CompareOrdinal($t, $c, 'text"', 0, 5) -eq 0) {
-                $m = $script:ChatOverlayTextRx.Match($t, $c, $end - $c)
+            # a turn's last text is its reply; the ones before it in the
+            # turn were said on the way
+            if (-not $said -and $t.IndexOf('text"', $c, [Math]::Min(5, $end - $c), $ord) -eq $c) {
+                $m = $script:ChatOverlayTextRx.Match($t.Substring($c, $end - $c))
                 $r = if ($m.Success) { (Convert-ChatJsonEscaped $m.Groups[1].Value).Trim() } else { '' }
-                if ($r) { $out.Reply = $r; $out.ReplyAt = Get-ChatOverlayCardStamp $t $s $end -Last }
+                if ($r) {
+                    $said = $true
+                    $at = Get-ChatOverlayCardStamp $t $s $end -Last
+                    if (-not $out.Reply) { $out.Reply = $r; $out.ReplyAt = $at }
+                    else { $talk.Add([pscustomobject]@{ Who = 'CLAUDE'; Text = $r; At = $at }) }
+                }
             }
         }
         elseif ($t.IndexOf('"type":"user"', $s, [Math]::Min($ln, 400), $ord) -ge 0) {
@@ -4002,16 +4121,28 @@ function Read-ChatOverlayCardTail {
             $cmd = -not $typed -and $t.IndexOf('<command-name>/', $s, [Math]::Min($ln, 4096), $ord) -ge 0
             if (-not $typed -and -not $cmd -and $t.IndexOf('"content":"<', $s, $head, $ord) -ge 0) { continue }
             $front = $false
+            $said = $false
+            $p = if (-not $cmd) { Get-ChatOverlayCardPrompt $t $s $end -Typed:$typed }
+            elseif ($ln -le 65536) { Read-ClaudeSlashCommand $t.Substring($s, $ln) }
             if ($turn) {
                 $turn = $false
-                $out.Prompt = if (-not $cmd) { Get-ChatOverlayCardPrompt $t $s $end -Typed:$typed }
-                elseif ($ln -le 65536) { Read-ClaudeSlashCommand $t.Substring($s, $ln) }
+                $out.Prompt = $p
                 $out.PromptAt = Get-ChatOverlayCardStamp $t $s $end
             }
+            elseif ($p) { $talk.Add([pscustomobject]@{ Who = 'YOU'; Text = $p; At = (Get-ChatOverlayCardStamp $t $s $end) }) }
         }
-        if ($out.Reply -and -not $turn) { break }
+        if ($out.Reply -and -not $turn -and $talk.Count -ge $script:ChatOverlayCardTalk) { break }
+    }
+    # a tool-heavy chat's 256 KB can hold one prompt: read four times as
+    # much, up to 4 MB, while the talk is short of its ten turns. A -Size
+    # given is the window asked for, and kept
+    $grow = $Grown -or -not $PSBoundParameters.ContainsKey('Size')
+    if ($grow -and $talk.Count -lt $script:ChatOverlayCardTalk -and $n -lt $out.Length -and $Size -lt 4194304) {
+        return Read-ChatOverlayCardTail -Path $Path -Size ([Math]::Min($Size * 4, 4194304)) -Grown
     }
     $out.Steps = $steps.ToArray()
+    $talk.Reverse()
+    $out.Talk = $talk.ToArray()
     return $out
 }
 
@@ -4102,8 +4233,14 @@ function Get-ChatOverlayCardModel {
       Steps                  the calls before it, newest first, at most 3:
                              @{ Tool; What }
       Tasks                  its todo list, while it has items left
-      Turns                  your prompt and Claude's reply, the older first:
-                             @{ Who; At; Text }
+      Todos                  that list itself, for the character view's quest
+                             tracker, in its order, at most 20: @{ Text; State }
+                             with State done, doing or todo; Text hidden of
+                             secrets and cut at 120 characters. Under Tasks'
+                             condition; else $null
+      Turns                  your prompt and Claude's reply, the older first,
+                             and the tail's Talk before them: @{ Who; At;
+                             Text }, at most ten
     A row's own state says whether it works or waits - the transcript cannot
     tell a call that runs from one that asks you.
     #>
@@ -4148,11 +4285,14 @@ function Get-ChatOverlayCardModel {
             if (-not $s -or ($shown -and $s.Id -eq $shown.Id) -or $s.Name -eq 'TodoWrite') { continue }
             [pscustomobject]@{ Tool = (& $name $s.Name); What = (Format-ChatOverlayCardArg $s.Name $s.Arg $cwd) }
         })
-    $tasks = $null
+    $tasks = $null; $todos = $null
     $td = if ($Tail) { $Tail.Todo } else { $null }
     if ($td -and $td.Done -lt $td.Count) {
         $tasks = "$($td.Done) of $($td.Count)"
         if ($td.Active) { $tasks += " $($script:ChatqDot) $($td.Active)" }
+        $todos = @(foreach ($i in @($td.Items | Select-Object -First 20)) {
+                [pscustomobject]@{ Text = (Limit-ChatqText ((Hide-ChatqSecrets ([string]$i.Text)) -replace '\s+', ' ').Trim() 120 -Ellipsis); State = [string]$i.State }
+            })
     }
     # a job's own prompt is what it sends; else the newest the tail holds -
     # in no words, a picture alone, it is shown as none, never as an older
@@ -4171,10 +4311,17 @@ function Get-ChatOverlayCardModel {
         # a prompt sent after it, not yet answered: the reply came first
         if ($turns.Count -and $you.At -and $Tail.ReplyAt -and [int64]$you.At -gt [int64]$Tail.ReplyAt) { $turns.Insert(0, $c) } else { $turns.Add($c) }
     }
+    # the talk before them, as far back as the tail reached
+    $older = @(foreach ($u in @(if ($Tail -and $turns.Count) { $Tail.Talk })) {
+            if (-not $u) { continue }
+            $text = if ($u.Who -eq 'YOU') { Limit-ChatqText ([string]$u.Text) 280 -Ellipsis } else { Get-ChatqExcerpt $u.Text 280 }
+            [pscustomobject]@{ Who = [string]$u.Who; At = (Format-ChatOverlayCardTime $u.At $now); Text = $text }
+        })
+    if ($older.Count) { $turns.InsertRange(0, [object[]]$older) }
     return [pscustomobject]@{
         Project = [string](Get-ChatField $Row 'project'); Title = [string](Get-ChatField $Row 'title')
         Label = $label; Tone = $tone; Tool = $tool; What = [string]$what; From = $from; At = $at
-        Steps = @($steps | Select-Object -First 3); Tasks = $tasks; Turns = $turns.ToArray()
+        Steps = @($steps | Select-Object -First 3); Tasks = $tasks; Todos = $todos; Turns = $turns.ToArray()
     }
 }
 
@@ -4233,7 +4380,8 @@ function Get-ChatMemorySums {
     if ($script:ChatMemorySumsSeam) { return (& $script:ChatMemorySumsSeam) }   # tests
     if (-not $script:ChatqIsWindows) { return $null }
     $sum = @{}
-    foreach ($p in @([System.Diagnostics.Process]::GetProcesses())) {
+    $all = if ($script:ChatMemoryProcsSeam) { @(& $script:ChatMemoryProcsSeam) } else { @([System.Diagnostics.Process]::GetProcesses()) }   # tests
+    foreach ($p in @($all)) {
         try {
             $b = [double]$p.PrivateMemorySize64
             $s = $sum[$p.ProcessName]
@@ -4406,6 +4554,160 @@ function Format-ChatOverlayMemoryText {
     $top = @(@(Get-ChatField $Memory 'top') | Where-Object { $_ })
     if ($top.Count) { $t += " - most: $($top -join ', ')" }
     return $t
+}
+
+#endregion
+
+#region overlay: the peek step --------------------------------------------------
+# The overlay's PowerShell steps (native/SPEC.md 3.9): what the native
+# collector starts, as src/overlay-step.ps1, for a piece of the look still
+# written in PowerShell. H1 has the shadow's peek look alone.
+
+function Get-ChatOverlayPeekCutOffs {
+    <#
+    The cut-off rows Invoke-ChatOverlayCycle's look would show now - its
+    CutOff, the 12 hours' keep and all - worked out and nothing written: no
+    marker pruned (Read-ChatqAskState -NoPrune), no host-work note kept (no
+    -Prune), no crash continue, no log line. -Carry: the look's caches,
+    CutCache and RestartCache, kept by the caller from one look to the
+    next. -Procs: the claude and node processes by pid, in place of
+    Get-Process. Empty while config cutOff is off, as the cycle's CutOff is.
+    #>
+    param([hashtable]$Carry, [hashtable]$Procs, [datetime]$Now = (Get-Date))
+    $cfg = Get-ChatOverlayConfig
+    if (-not $cfg.cutOff) { return @() }
+    foreach ($n in 'CutCache', 'RestartCache') { if ($Carry[$n] -isnot [hashtable]) { $Carry[$n] = @{} } }
+    $entries = @(Read-ChatqSessionRegistry (Join-Path $script:ChatClaudeHome 'sessions') @{})
+    $alive = @($entries | Where-Object { $_.SessionId -and (Test-ChatqSessionAlive $_ $Procs) })
+    $live = @($alive | Where-Object { -not $_.Kind -or $_.Kind -eq 'interactive' })
+    $jobs = @(Get-ChatqJobs | Where-Object { $_.state -in 'queued', 'running', 'needs-input' })
+    $working = @($live | Where-Object { $_.Status -in 'busy', 'waiting' } | ForEach-Object { [string]$_.SessionId })
+    $scan = @(Get-ChatqCutOffChats @() -Hours 168 -Cache $Carry.CutCache -Skip $working)
+    $asked = Read-ChatqAskState -NoPrune
+    $restart = @(Get-ChatRestartCutOffs -Live $alive -Asked $asked -Jobs $jobs -Cache $Carry.RestartCache -Pending @{} -Now $Now)
+    $keep = $Now.AddHours(-12)
+    return @(
+        $scan | Where-Object { $_ -and (($_.ResetsAt -and $_.ResetsAt -gt $keep) -or ($_.At -and $_.At -gt $keep)) }
+        $restart | Where-Object { $_ -and $_.At -and $_.At -gt $keep }
+    )
+}
+
+function ConvertTo-ChatOverlayStepTime {
+    # a time as a step sends it: the snapshot's epoch ms (ConvertTo-ChatOverlayMs)
+    # as an ISO UTC string, which every edition reads back the same
+    param($When)
+    $ms = ConvertTo-ChatOverlayMs $When
+    if ($null -eq $ms) { return $null }
+    return [DateTimeOffset]::FromUnixTimeMilliseconds($ms).UtcDateTime.ToString('o')
+}
+
+function Invoke-ChatOverlayStep {
+    <#
+    One overlay step's op (native/SPEC.md 3.9), from src/overlay-step.ps1:
+    In read - {v, op, version, hostPid, args} - the op run, and Out written,
+    {v, ok, error, w, result}, times as ISO strings. A missing In, another v
+    or an op not known is 'bad step input'; a version not this script's is
+    said in error, and nothing is run. The parent is checked before and
+    after the op (ChatqStepParent): with the collector gone, the step ends
+    itself at once.
+      ping   {version}
+      look   (args.peek, which H1 always sends) the peek look's cut-off
+             rows (Get-ChatOverlayPeekCutOffs) and the compiles and WMI
+             queries it was refused (src/overlay-step.ps1), its caches kept
+             in data/native/overlay-carry-look.clixml from one look to the
+             next, tagged with the version and dropped under another
+      delete, archive, reload-answer, config, card, auto-on, auto-ask, auto-off,
+      auto-notice, crash-on, crash-off, answered-jobs, auto-chip,
+      live-alert, phone-extras, act-look, ask-answer, ask-phone, ask-watch,
+      startup
+             the Rust host's acting verbs and its own acts: -Act's, the step's load having
+             the parts they reach (src/overlay-step.ps1 names it
+             Invoke-ChatOverlayActStep), given the op and args; {done, say,
+             request}. With no -Act, 'bad step input'
+    #>
+    param([string]$In, [string]$Out, [scriptblock]$Act)
+    $r = [ordered]@{ v = 1; ok = $false; error = 'bad step input'; w = $null; result = $null }
+    $q = Read-ChatqJson $In
+    $op = if ($q) { ConvertFrom-ChatqStepText $q.op } else { $null }
+    $acts = 'delete', 'archive', 'reload-answer', 'config', 'auto-on', 'auto-ask', 'auto-off', 'auto-notice', 'crash-on', 'crash-off', 'answered-jobs', 'auto-chip', 'live-alert', 'phone-extras', 'act-look', 'ask-answer', 'ask-phone', 'ask-watch', 'startup'
+    if (-not $q -or (Get-ChatqNativeInt $q.v) -ne 1 -or $op -isnot [string] -or ($op -cnotin 'ping', 'look' -and ($op -cnotin $acts -or -not $Act))) {
+        Save-ChatqText $Out ($r | ConvertTo-Json -Depth 6); return
+    }
+    $want = [string](ConvertFrom-ChatqStepText $q.version)
+    if ($want -cne $script:ChatVersion) {
+        $r.error = "version $script:ChatVersion is not $want"
+        Save-ChatqText $Out ($r | ConvertTo-Json -Depth 6); return
+    }
+    if ($script:ChatqStepParent -and -not (& $script:ChatqStepParent)) { Stop-Process -Id $PID -Force }
+    $a = $q.args
+    $r.error = $null
+    $res = $null
+    $carry = $null
+    try {
+        switch -CaseSensitive ($op) {
+            'ping' { $res = [ordered]@{ version = $script:ChatVersion } }
+            'look' {
+                $carry = Import-ChatOverlayStepCarry 'look'
+                $procs = @{}
+                foreach ($p in @($a.procs)) {
+                    if (-not $p) { continue }
+                    $start = ConvertTo-ChatqDate (ConvertFrom-ChatqStepText $p.start)
+                    $procs[[int]$p.pid] = [pscustomobject]@{ Id = [int]$p.pid; ProcessName = [string]$p.name; StartTime = $(if ($start) { $start.ToLocalTime() } else { $null }) }
+                }
+                $rows = @(Get-ChatOverlayPeekCutOffs -Carry $carry -Procs $procs)
+                $refused = $script:ChatOverlayStepRefused
+                $res = [ordered]@{
+                    cutOff   = @($rows | ForEach-Object {
+                            [ordered]@{
+                                id = [string]$_.Id; title = [string]$_.Title; why = [string]$_.Why
+                                resetsAt = ConvertTo-ChatOverlayStepTime $_.ResetsAt; at = ConvertTo-ChatOverlayStepTime $_.At
+                                cwd = [string]$_.Cwd; path = [string]$_.Path; cause = [string](Get-ChatField $_ 'Cause')
+                            }
+                        })
+                    compiles = $(if ($refused) { [int]$refused.compiles } else { 0 })
+                    wmi      = $(if ($refused) { [int]$refused.wmi } else { 0 })
+                }
+            }
+            default { $res = & $Act $op $a }
+        }
+        $r.ok = $true
+    }
+    catch { $r.error = "$($_.Exception.Message) @ $(($_.ScriptStackTrace -split "`r?`n")[0])" }
+    if ($script:ChatqStepParent -and -not (& $script:ChatqStepParent)) { Stop-Process -Id $PID -Force }
+    if ($carry) { Export-ChatOverlayStepCarry 'look' $carry }
+    if ($r.ok) { $r.result = $res }
+    Save-ChatqText $Out ($r | ConvertTo-Json -Depth 6)
+}
+
+function Import-ChatOverlayStepCarry {
+    # data/native/overlay-carry-<Name>.clixml's caches, by name, as
+    # Export-ChatOverlayStepCarry kept them; none - none kept, one that will
+    # not read, or one another version kept - is an empty set, to start again
+    param([string]$Name)
+    $out = @{}
+    $p = Get-ChatqNativeFile "overlay-carry-$Name.clixml"
+    if (-not [System.IO.File]::Exists($p)) { return $out }
+    $c = try { Import-Clixml -LiteralPath $p } catch { $null }
+    if ($c -isnot [hashtable] -or [string]$c['Version'] -cne $script:ChatVersion -or $c['Caches'] -isnot [hashtable]) { return $out }
+    foreach ($k in @($c['Caches'].Keys)) {
+        $v = try { ConvertFrom-ChatqCarryValue $c['Caches'][$k] } catch { $null }
+        if ($v -is [hashtable]) { $out[$k] = $v }
+    }
+    return $out
+}
+
+function Export-ChatOverlayStepCarry {
+    # the caches into data/native/overlay-carry-<Name>.clixml with this
+    # version, for the next step; one of a type the carry does not know is
+    # left out, to start again
+    param([string]$Name, [hashtable]$Caches)
+    $keep = @{}
+    foreach ($k in @($Caches.Keys)) { try { $keep[$k] = ConvertTo-ChatqCarryValue $Caches[$k] } catch {} }
+    try {
+        New-ChatqDir (Join-Path $script:ChatqData 'native')
+        Export-Clixml -LiteralPath (Get-ChatqNativeFile "overlay-carry-$Name.clixml") -InputObject @{ Version = $script:ChatVersion; Caches = $keep } -Depth 64
+    }
+    catch {}
 }
 
 #endregion

@@ -84,7 +84,9 @@ $script:ChatCodexNamesAt = 0
 $script:ChatColors = $null
 $script:ChatGhostWatcher = $null
 $script:ChatNoIndex = $false
-$script:ChatArrowWas = @{}
+# kept across a second load: Get-ChatArrowWas needs what the first recorded
+$script:ChatArrowWas = $ExecutionContext.SessionState.PSVariable.GetValue('ChatArrowWas')
+if ($script:ChatArrowWas -isnot [hashtable]) { $script:ChatArrowWas = @{} }
 # set by the tests: a FileSystemWatcher event firing between their statements
 # would delete fixtures out from under them
 $script:ChatNoGhostWatch = $false

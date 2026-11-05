@@ -1262,7 +1262,7 @@ function Add-ChatConsoleAutoLine {
     $chips = New-ChatConsoleChips @('default', 'always', 'never') @("Default ($($cfg.Mode))", 'Always', 'Never') $cur {
         param($s, $e) $e.Handled = $true; Set-ChatConsoleAutoChat $script:ChatOverlayHost ([string]$s.Tag)
     }
-    $tips = @{ default = "Follow the setting in the panel's settings box."; always = 'Continue this chat after every limit or 529, even with the switch on Ask or Leave.'; never = 'Never continue this chat by itself; its magenta row stays until you do.' }
+    $tips = @{ default = "Follow the setting in the panel's settings box."; always = 'Continue this chat after every limit or 529, even with the switch on Ask or Leave.'; never = 'Never continue this chat by itself; its red row stays until you do.' }
     foreach ($c in @($chips.Children)) { $c.ToolTip = $tips[[string]$c.Tag] }
     [void]$d.Children.Add($chips)
     $d.Tag = 'auto'

@@ -55,21 +55,21 @@ var CO = {
     return null;
   },
   colors: {
-    waiting: [0.96, 0.73, 0.26], 'needs-input': [0.96, 0.73, 0.26], busy: [0.13, 1.0, 0.39],
-    running: [0.31, 0.63, 1.0], idle: [0.50, 0.53, 0.56], queued: [0.71, 0.55, 1.0], cutoff: [0.94, 0.38, 0.91],
-    text: [0.95, 0.93, 0.93], dim: [0.72, 0.66, 0.67], faint: [0.54, 0.48, 0.49], project: [0.13, 1.0, 0.39],
-    normal: [0.84, 0.79, 0.80], warning: [0.96, 0.73, 0.26], critical: [1.0, 0.16, 0.33],
-    warn: [0.96, 0.73, 0.26], error: [1.0, 0.36, 0.48], unlocked: [0.91, 0.0, 0.23], trim: [0.13, 1.0, 0.39]
+    waiting: [0.94, 0.71, 0.22], 'needs-input': [0.94, 0.71, 0.22], busy: [0.11, 0.93, 0.51],
+    running: [0.31, 0.63, 1.0], idle: [0.43, 0.45, 0.51], queued: [0.71, 0.55, 1.0], cutoff: [0.97, 0.31, 0.29],
+    text: [0.89, 0.86, 0.81], dim: [0.60, 0.58, 0.64], faint: [0.43, 0.41, 0.49], project: [0.37, 0.96, 1.0],
+    normal: [0.37, 0.96, 1.0], warning: [0.94, 0.71, 0.22], critical: [0.97, 0.31, 0.29],
+    warn: [0.94, 0.71, 0.22], error: [0.97, 0.31, 0.29], unlocked: [0.97, 0.31, 0.29], trim: [0.37, 0.96, 1.0]
   },
   // the light look: the same meanings, darker to read on white
   light: {
     waiting: [0.79, 0.54, 0.0], 'needs-input': [0.79, 0.54, 0.0], busy: [0.10, 0.56, 0.30],
-    running: [0.12, 0.44, 0.92], idle: [0.55, 0.58, 0.62], queued: [0.51, 0.31, 0.87], cutoff: [0.75, 0.22, 0.54],
+    running: [0.12, 0.44, 0.92], idle: [0.55, 0.58, 0.62], queued: [0.51, 0.31, 0.87], cutoff: [0.81, 0.13, 0.18],
     text: [0.12, 0.14, 0.16], dim: [0.34, 0.38, 0.42], faint: [0.55, 0.58, 0.62], project: [0.04, 0.41, 0.85],
     normal: [0.04, 0.41, 0.85], warning: [0.75, 0.53, 0.0], critical: [0.81, 0.13, 0.18],
     warn: [0.60, 0.40, 0.0], error: [0.81, 0.13, 0.18], unlocked: [0.04, 0.41, 0.85], trim: [0.0, 0.0, 0.0]
   },
-  // the dark look's green line round the panel, or null for none
+  // the dark look's cyan line round the panel, or null for none
   frameLine: function (theme) { return theme === 'light' ? null : CO.colors.trim; },
   // config.theme - dark, light or system - to the look drawn
   themeOf: function (config, systemDark) {
@@ -275,7 +275,7 @@ function run(argv) {
     // HUD material for dark; the popover one follows the appearance given
     fx.setMaterial(theme === 'light' ? 6 : 13);
     fx.setAppearance($.NSAppearance.appearanceNamed(theme === 'light' ? 'NSAppearanceNameVibrantLight' : 'NSAppearanceNameVibrantDark'));
-    // the dark look's green line round the panel (CO.frameLine) - untried
+    // the dark look's cyan line round the panel (CO.frameLine) - untried
     // Cocoa, so a bridge that refuses the CGColor costs the line alone: its
     // colour set before its width, so a refusal leaves no line at all
     try {

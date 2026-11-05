@@ -1,5 +1,2504 @@
 # Changelog
 
+## 1.1.0 — Cards and usage asks in Rust
+
+- **A row's card comes at once.** The Rust host reads the transcript's
+  end itself, in a thread of its own, instead of starting PowerShell for
+  it: some 3 s a card before, up to 30 s on pwsh 7.4. The last card
+  asked for wins, and no act waits for it
+  ([card::answer](native/overlay/collect/src/card/mod.rs)).
+- **ASK on a gauge needs no PowerShell.** The usage fetch that ASK
+  and the timed asks start - Claude's endpoint, `gh api` and
+  `codex app-server` - now runs in the Rust host, each provider on a
+  thread of its own to its own deadline (15 s, 20 s, 20 s), where
+  PowerShell started for every ask: the gauge spins and updates with no
+  step process between. A provider that fails, runs late or panics fails
+  alone, and the host's end stops the fetches that are out
+  ([usage_fetch::ask](native/overlay/collect/src/usage_fetch/mod.rs),
+  [usage::Net](native/overlay/collect/src/host/usage.rs)). The login's
+  token is read in the fetch alone, and Claude's endpoint is asked
+  through Windows' own curl.exe with the request on its stdin: a
+  firewall that blocks outbound by default lets curl out, not
+  chatq-overlay.exe ([sys::http](native/overlay/collect/src/sys/http.rs)).
+  The `usage` step and its
+  `ostep-usage` role are gone; the PowerShell host's own fetches are
+  untouched.
+- **Resting on a gauge brings only its keys.** Since 1.0.2 it brought a
+  copy of the gauge itself; the gauge already says it, so now only the
+  keys row stands beside it, ASK and the rest
+  ([App.card_target](native/overlay/src/app.rs)).
+- **F works where the card was brought up.** The card's letters were the
+  keyboard's only with the pointer on the card itself, so F on a gauge
+  card - where the pointer is when its hover card comes - did nothing.
+  They now are with the pointer on the card, on a gauge card or on a
+  quest row while its card is up; anywhere else typing keeps them
+  ([App::card_letters_at](native/overlay/src/app/pointer.rs)).
+
+## 1.0.2 — Chats by their titles, and "now tracking"
+
+The overlay names a chat by its title, not its folder, says less of what
+it already shows, and an open ends on the quest tracker's word.
+
+- **NEW QUEST waits for the AI's title.** A new chat's banner would show
+  its first prompt when it reached the list before Claude named it. A
+  Claude row carries `titled` (false while its title is the first
+  prompt; Get-ChatOverlayRows in [overlay-data.ps1](src/overlay-data.ps1),
+  [rows.rs](native/overlay/collect/src/rows.rs)), and the banner waits for
+  it, up to 10 s ([card::titled](native/overlay/src/card.rs),
+  `card::TITLE_WAIT`), then shows the first prompt as before.
+- **An open says "now tracking".** The line once an open is done reads
+  `now tracking '<title>'`, and the character says `Now tracking: {chat}.`,
+  where both said "opened" (Get-ChatOverlayOpenSay in
+  [overlay-host.ps1](src/overlay-host.ps1),
+  [says::open_say](native/overlay/collect/src/host/says.rs), `status.opened`
+  in [lines.json](skins/default/lines.json)).
+- **No line while it opens.** The panel's `opening '<title>'` line is
+  gone: the character already says `Opening {chat}.`
+  ([App.open_row](native/overlay/src/app/opening.rs),
+  Invoke-ChatOverlayOpen in [overlay-windows.ps1](src/overlay-windows.ps1)).
+- **The character names the chat, not the project.** The default skin's
+  twelve lines that said `{project}` - started, its minutes, waiting,
+  permission, a question, finished, a queued prompt sent, resumed, stopped -
+  say `{chat}`, the chat's title, so two chats of one folder are told apart
+  ([lines.json](skins/default/lines.json),
+  [make_default.py](skins/tools/make_default.py)). A pack's own `{project}`
+  still fills as before.
+- **The quest card says its state once.** Character view's hover card
+  dropped the words line under its head; the badge and the NOW line say
+  the same ([card::chat](native/overlay/src/card.rs)). Panel view's card
+  keeps it.
+- **A bar a window, its words at its right.** The grey line on top counts
+  to the next reset: lit by the share of the 5 h window gone, with
+  `resets at 10:53` beside it; when the week resets first it counts to
+  the week's. The red health bar is the 5 h window (`5H 70%`), the 36
+  pips of RAM the week (`WEEK 19%`), and a gold stamina line under them
+  each model's own week (`FABLE 60%`), one line per model week, none
+  when there is none. The reset row under each bar and the status line
+  are gone ([card::ram](native/overlay/src/card.rs),
+  [card::next_reset](native/overlay/src/card.rs)).
+- **A change drops each bar from 10 % above.** When a window's share
+  moves, its bar shows the game's hit: a pale block over the last 10 %
+  lost (from the new share plus 10 %, at most full) holds, closes to a
+  white sliver at the new edge and fades, about 0.36 s. The RAM pips the
+  change took go red from the top down, one after another, the filling
+  run backwards ([bars::after](native/overlay/src/bars.rs),
+  [bars::drop](native/overlay/src/bars.rs),
+  [bars::pip_at](native/overlay/src/bars.rs)).
+- **An empty 5 h window flatlines.** At 0 % the health bar becomes the
+  game's FLATLINED: a glitch, a red `CRITICAL SYSTEM FAILURE` tag, then a
+  skull and `FLATLINED` typed out in a cut box, about 1.1 s, held after
+  ([bars::flatline](native/overlay/src/bars.rs)).
+- **And the screen flatlines with it, as in the game.** In Character
+  view, when a 5 h window runs out (it had some left, now none; never at
+  start), the whole screen of the HUD's monitor plays the game's death:
+  the screen tears red and goes black, `CRITICAL SYSTEM FAILURE` and its
+  panels, a skull and `FLATLINED` in the TNC box, then they slide left
+  over a red glow, with the reset time under the word. Its menu asks what
+  to do about the limit: **REBOOT AT RESET** (auto-continue on), **ASK PER
+  CHAT** (auto-continue asks per chat) or **JACK OUT** (just close); the
+  setting in force wears the bracket. A click off the menu is JACK OUT,
+  and after 60 s, counted down at the bottom right, it closes and the
+  setting stays ([flatlined](native/overlay/src/flatlined.rs),
+  [App::flat_start](native/overlay/src/app/stage.rs),
+  [App::flat_hit](native/overlay/src/app/pointer.rs)).
+- **A usage ask makes the cards vanish and come back, no blink.** While
+  usage is asked the cards no longer pulse; they go and come back in with
+  the dialog options' entrance ([hud::gauges](native/overlay/src/hud.rs)).
+- **The red drawings round the bars.** Left of each card, as in the
+  game: a `HEALTH INDICATOR` caption over the bars, a column of small red
+  readouts, a crosshair and a gold bolt at the stamina line's left, the
+  line itself starting under the badge, as the game's does; the gauge
+  window only, not the hover card
+  ([bars::decor](native/overlay/src/bars.rs)). New look tokens `exp`,
+  `stamina`, `drop`, `drop-edge` (`hudExp`, `hudStamina`, `hudDrop`,
+  `hudDropEdge`).
+- **The gauges let clicks through too; their card has an ASK key.** A
+  click on Character view's gauge window no longer asks for usage: it
+  lands on what is under it. Resting on a gauge card brings the gauge's
+  hover card back (gone since the gauge window came in 0.12.8), standing
+  off the gauge window, with one key under it in the card's look: ASK,
+  which asks for usage now, as the click did. A click on that card opens
+  nothing ([App::entries](native/overlay/src/app/pointer.rs),
+  [App::card_keys](native/overlay/src/app/pointer.rs),
+  [App::start](native/overlay/src/app.rs)). The drive's `gauge-click`
+  now clicks that ASK key.
+- **A rest on a gauge or a quest is seen sooner, for less.** The pointer
+  was looked at every 120 ms, and each look copied every row's data to
+  find the one under it. Within 64 px of the gauge window, the quest
+  window or the card it is now looked at every 30 ms, and only when it
+  has moved; the rest of the poll (scenes, the drive, screens, tips, the
+  menu, talks) stays at 120 ms, and away from them so does the pointer's.
+  A look now copies only the row under the pointer
+  ([App::hover](native/overlay/src/app/pointer.rs),
+  [App::near_lists](native/overlay/src/app/pointer.rs),
+  [App::entries_at](native/overlay/src/app/pointer.rs)).
+- **A chat's card holds ten turns, and scrolls.** The open card showed
+  your newest prompt and Claude's reply alone. It now shows up to ten:
+  each turn's prompt and its reply (a turn's last text; what Claude said
+  on the way is left out), from the transcript's last 256 KB, read
+  four times further back, up to 4 MB, while that holds fewer - a
+  tool-heavy chat's 256 KB can hold one prompt. The card stays as tall as
+  the newest two turns made it: past two, the talk is cut to that view,
+  which opens on the newest at its foot, as the phone's messages do,
+  with a scroll bar at its right - in Character view the game's, a dim
+  red line with a red thumb - and the wheel over the card scrolls it
+  back and forth. Both views
+  ([Read-ChatOverlayCardTail](src/overlay-data.ps1)'s Talk,
+  [card::Talk](native/overlay/src/card.rs),
+  [App::card_wheel](native/overlay/src/app/pointer.rs)). The WPF card
+  keeps its two.
+- **READ or UNREAD on a quest's card no longer brings its titles.** The
+  key re-sorts the quest list, moving the row; the card took the moved
+  row for a stage tag and grew the project and title over it, standing
+  by the character. A quest is now known by its key, and its card stands
+  off where the row is now ([App::quest_now](native/overlay/src/app.rs)).
+- **The card's keys are the keyboard's; ARCHIVE and DELETE are held.**
+  The keys under Character view's card take the game's letters - F
+  OPEN (F ASK on a gauge's card), R READ or UNREAD, Z ARCHIVE, X DELETE -
+  and the keyboard's keys of those letters press them, but only while
+  the pointer rests on the card: elsewhere they type as ever. ARCHIVE and
+  DELETE, by the mouse or the key, are held 0.8 s, a cyan ring filling
+  round the disc; let go before, nothing is done
+  ([App::card_shortcut](native/overlay/src/app/pointer.rs),
+  [App::card_shortcuts](native/overlay/src/app/pointer.rs),
+  [App::hold_tick](native/overlay/src/app/pointer.rs),
+  [card::keys](native/overlay/src/card.rs)).
+- **UNREAD on a chat only a tab holds.** Mark unread, on the card or
+  Panel view's row menu, was greyed for a chat open in a VS Code tab with
+  no Claude process - most quests. Its dot is now kept while the tab is
+  open, cleared by READ or by the tab coming to the front
+  ([update_unread](native/overlay/collect/src/unread.rs),
+  [trayicon::row_menu](native/overlay/src/trayicon.rs)).
+
+## 1.0.1 — A quicker open, keys under the card, QUEST COMPLETE at the left
+
+A click on a chat's open chip brings its tab up to about two seconds
+sooner: three waits that took their whole time now end as soon as there
+is something to see. In Character view the quests let clicks through,
+the card opens its chat and carries keys, QUEST COMPLETE moves to the
+screen's left in the game's look, and the character has its own size.
+
+- **The open request is heard at once.** The extension looked at
+  `data/open-request` every 2 s, so a chip's open waited a second on
+  average, two at worst, before VS Code did anything. It now has Windows
+  tell it of the write (a watch on the data folder), which costs nothing
+  while idle; the 2 s look stays behind it, for a watch that fails
+  ([activate](extension/extension.js)).
+- **The tab is looked for, not slept on.** After the open the extension
+  slept 400 ms, looked for a new tab, and where none had come slept
+  1.5 s more before bringing the chat's group forward and unlocking it -
+  the usual case for a chat whose tab was there already. It now looks
+  every 50 ms and stops at a new tab, or at the chat's own tab come to
+  the front; the limits are as they were. A tab already in front before
+  the click still gets the whole look, since a new one may yet come
+  ([openCore](extension/extension.js), [waitFor](extension/extension.js),
+  [frontChatTab](extension/extension.js)).
+- **The overlay sees the open's end at once.** It looked at the open's
+  PowerShell, and then for the chat's VS Code window, once a second on
+  its tick. It now looks every 100 ms while an open is under way, and
+  not at all otherwise ([App::open_poll](native/overlay/src/app/opening.rs)).
+- **A delete from the overlay closes the chat's tab again.** Before a
+  chat goes, its leftovers are listed, and a plan file is kept when
+  another chat of the folder shares its slug. That check read every
+  other transcript of the folder whole: in a folder of a gigabyte, a
+  minute or two, so the overlay's delete step was killed at its 30 s
+  before the chat went or its tab was asked to close, while the row
+  had already left the panel. Either view, any chat with a slug. The
+  check now runs only when a plan file of that slug exists, and reads
+  each other chat's head and tail, where Claude Code stamps the slug
+  on every record; worst here 0.5 s, from 113 s
+  ([Get-ClaudeLeftovers](src/providers.ps1)).
+- **A delete that does not finish says so.** The row leaves the list at
+  the click, before the host's step has run; a step killed or failed
+  was only logged, so the chat looked deleted while it and its tab
+  stayed. Now the panel's line and a warning balloon say `"<title>"
+  may not be deleted - the delete did not finish (<why>)`, the recent
+  list is read again, and the row comes back at once - as it now does
+  too on a refusal the host gives, which hid it for 45 s
+  ([act::unfinished_delete](native/overlay/collect/src/host/act.rs),
+  [App::keep_dropped](native/overlay/src/app/pointer.rs)). Panel view's
+  bin and Character view's DELETE key are one call
+  ([App::delete_row](native/overlay/src/app/pointer.rs)).
+- **Panel view's buttons always show.** A row's card, held on the screen,
+  could stand over the panel's top strip and cover its buttons; the bar
+  is now stacked over the card and the chip in Panel view
+  ([stack_order](native/overlay/src/app.rs)).
+- **The quests make way for the stage.** In Character view the stage,
+  left at its first place (the screen's top right), stood over the quest
+  window. Where the stage's character or tags meet the quest window, the
+  quests now start below them, or, with more room above, end over them;
+  the quests move again when the stage is dragged and let go
+  ([hud::quests_clear](native/overlay/src/hud.rs)).
+- **QUEST COMPLETE moves to the screen's left, and takes the game's
+  look.** 1.0.0's banner sat under the quest list, a flat plate that
+  popped in. Compared again with the capture at 30 fps, it is now a
+  window of its own at the work area's left edge, 44 % down, bent by the
+  visor like the other HUD windows, and it never takes the pointer, so
+  the quest window no longer keeps a strip for it. Its plate is a gold
+  card turned in perspective, with its edge showing, carrying our own
+  ring-and-tick seal (not the game's emblem). The entrance: the words
+  flash a frame, the card and the seal build up in flickering pieces, an
+  outline of the card swings in from the left and lands, the badge pops
+  in large and settles into a soft square glow, the label types a letter
+  every two frames behind a cursor, and the title comes in glowing green.
+  The exit: the title flickers out, label and badge fade to a ghost, the
+  badge drops to its outline, the label is cut to `QUEST COM`, a bright
+  block is left, and the card goes last; 7.3 s in all, held still with
+  Animations off. The red bar is gone: in the capture it belonged to
+  another of the game's elements
+  (since redrawn: see "QUEST COMPLETE takes NEW QUEST's look" below).
+- **NEW QUEST, as the game starts a job.** A chat new to the quest list
+  in Character view brings a banner in QUEST COMPLETE's window, from the
+  user's capture of the game's "new job" read at 30 fps and measured to
+  the pixel at 1080p. A red `CONNECTION` header types out behind a red
+  block, its number the chat's own; a gold data shard's shell comes in
+  and its plate, disc, hub and face fly in from the left and seat; a plus
+  pops in large in a glowing cross and an outlined shield closes round
+  it; `NEW QUEST` types behind a yellow block and the title comes in
+  white. It holds, then the title flickers out, a block eats the label,
+  the shield fades, a red bar eats the header back and the shard dims
+  last; about 6 s, held still with Animations off. The capture's TRACK
+  JOB prompt is left out, as the window takes no clicks. The chats a
+  snapshot brings on start or on the way back to Character view bring
+  none; either banner takes the other's place
+  ([banner::frame_new](native/overlay/src/banner.rs),
+  [banner::prims](native/overlay/src/banner.rs),
+  [card::arrived](native/overlay/src/card.rs),
+  [App::begun_start](native/overlay/src/app/stage.rs)).
+- **QUEST COMPLETE takes NEW QUEST's look.** Set beside the user's two
+  "job complete" captures, the game's done banner turned out to be the
+  new job's own choreography: the same red header and box, the same gold
+  shard flying together, then a green shield instead of the plus. The
+  ring-and-tick card, its swinging outline and the cursor are gone. Now
+  the shield pops in large and solid, settles, and opens to an outline
+  round an inset as a glow square fades; `QUEST COMPLETE` types behind a
+  green block and the title comes in green, a size up from NEW QUEST's.
+  The parts stand where the capture's do, measured at 1080p: a larger
+  shard, the text set right of it. The exit is the capture's: the shield
+  loses its inset a frame, the title flickers out, label and shield fade
+  to ghosts, the label is cut, a green block takes its start, a red bar
+  eats the header and the shard and the red box go last; about 7.9 s,
+  held still with Animations off. Both banners are one module now
+  ([banner::frame_done](native/overlay/src/banner.rs),
+  [banner::draw](native/overlay/src/banner.rs)).
+- **QUEST FAILED, as a quest is archived.** The ARCHIVE key under a
+  quest's card in Character view now leaves a banner too, from the user's
+  capture of the game's "job failed": NEW QUEST's choreography, frame for
+  frame and part for part, all in red, a red shard and a cross in the
+  shield in place of the plus. The cross pops in large, shrinks, and the
+  shield closes round it; `QUEST FAILED` types out and the title comes in
+  red; about 5.7 s, held still with Animations off. A delete still brings
+  QUEST COMPLETE; an archive from Panel view's row menu brings none, as
+  its bin's delete brings none
+  ([banner::frame_failed](native/overlay/src/banner.rs),
+  [App::failed_start](native/overlay/src/app/stage.rs)).
+- **Settings → Character size, apart from HUD size.** HUD size scaled
+  the whole of Character view as one. The character now has its own
+  size, 50, 100, 150 or 200 % (150 the default, `characterSize` in
+  config.json): it scales the stage (the character and its tags) and
+  the bar over it. HUD size keeps the speech box, the card, the gauges,
+  the quests and the QUEST COMPLETE banner. The speech box still finds
+  the character's mouth at either size ([App::want_scale](native/overlay/src/app.rs),
+  [App::say_layout](native/overlay/src/app/stage.rs)).
+
+### The quests let clicks through; the card opens the chat and has keys
+
+- **The quest list takes no click.** Character view's quest window is
+  large, and a click on it no longer stops there: it lands on what is
+  under it. A quest row has no chip and no open hit; resting on it still
+  brings its card ([App::start](native/overlay/src/app.rs),
+  [chip::Chip::place](native/overlay/src/chip.rs)).
+- **A click on the card opens the chat.** The hover card took no pointer;
+  a click on it now opens its chat as the chip's open did, and a quest
+  row blinks again as it opens ([App::card_hit](native/overlay/src/app/pointer.rs)).
+- **Keys under the card.** In Character view a row of keys hangs under
+  the card, as the game's phone puts CALL and CLOSE under a message
+  (the "Message received & opened" capture): a cyan disc with a
+  letter, the name in red capitals. OPEN, READ or UNREAD, ARCHIVE and
+  DELETE: Panel view's row menu without Snooze, and the bin's delete.
+  A quest deleted here leaves the QUEST COMPLETE banner. A key the chat
+  cannot take sends nothing; it blinks three times, 50 ms out and 50 back,
+  and stays dim while the card is up ([card::keys](native/overlay/src/card.rs),
+  [App::card_keys](native/overlay/src/app/pointer.rs),
+  [App::key_click](native/overlay/src/app/pointer.rs),
+  [App::key_lit](native/overlay/src/app/pointer.rs)).
+- **The hover card is 25 % larger.** Text, padding and width grow
+  together, in both views, at every HUD size; the card still stands
+  where it did beside the row and the character. The keys under it keep
+  their size, already large beside it
+  ([App::want_scale](native/overlay/src/app.rs), `CARD_ZOOM`,
+  [card::keys](native/overlay/src/card.rs)).
+- **No quest swipe.** With the list click-through a quest row cannot be
+  pressed: swipe-to-delete on it is gone, DELETE taking its place. Panel
+  view's tiles swipe as before.
+- **Skippy reports the week every 5%.** Each time a week window passes
+  a new 5% step he opens a talk of his own: "Hello, user. I have prepared
+  a usage data report for you." / "Please say anything to continue.",
+  with one gold "Anything." row for 5 s. Picked, it gets the game's
+  canned laugh ("It looks like you're trying to be funny..."); either
+  way he then says the week's percent. Not while muted, over another
+  talk or a scene, or outside Character view; the step the panel starts
+  at is not news ([Watch.diff](native/overlay/src/events.rs),
+  [App.talk_weekly](native/overlay/src/app/dialog.rs),
+  [Talk.at](native/overlay/src/talk.rs); skin-pack.md "dialog").
+- **"Still got eddies to burn?" goes straight to the report.** The
+  usage row's opener and its "Anything." joke moved to the weekly talk;
+  the row now says "Processing request." and the windows.
+- **Record mode plays on the real overlay.** It used to stop the
+  overlay and start a second one on a made-up data folder, whose chats,
+  gauges and settings were written by the scene tool by hand and fell
+  further behind the real ones with each change. Record mode now plays
+  the scene's lines and replies on the overlay already running, as it
+  is: the scene's own chats and usage are not applied. The overlay turns
+  a scene on when `data/scene-in` comes and off at its `end` line, which
+  the tool sends when the scene ends or on Ctrl+C; the skin's own lines
+  wait in between. One line at a time:
+  `py tools/overlay_scene.py --say "text" --mood smug`, then `--end`.
+  A pick now goes back in `data/scene-out`, not `overlay-cmd`
+  ([App.cue_poll](native/overlay/src/app/cue.rs),
+  [App.record](native/overlay/src/app.rs), `tools/overlay_scene.py`).
+- **The unread dot goes by the chat's tab, not by VS Code.** A chat that
+  finished while VS Code was in front got no dot, even with another tab
+  in front of it: the overlay could only tell which program was in
+  front. The extension now marks, in `data/open-tabs`, the Claude tab in
+  front of a focused window once it has stayed there a second, so a chat
+  whose tab is listed gets its dot unless that tab was in front, and
+  loses it when its tab comes to the front - reading it in VS Code
+  clears it, as VS Code's own tab dot clears. A Mark unread on the tab
+  in front holds until you leave it and come back. Tabs that share a
+  label, and terminal chats, go by the program as before
+  ([lookFront](extension/extension.js),
+  [update_unread](native/overlay/collect/src/unread.rs),
+  [Update-ChatOverlayUnread](src/overlay-data.ps1)).
+
+## 1.0.0 — Character view at the game's size
+
+Character view takes the game's HUD whole: the character stands at the
+game's size, the HUD bends on its visor and scales by Settings → HUD
+size, a quest swiped away ends in a banner, and the overlay's motion
+has its own switch.
+
+### Skippy jabs by form, and the open's line stops counting
+
+- **The open's line has no countdown.** The panel's marker while a chat
+  opens reads `opening '<title>' in VS Code`, and the chip's hint
+  `opening`, for as long as the open runs; the seconds that ticked after
+  them are gone ([model::open_busy_text](native/overlay/src/model.rs),
+  [App::open_tick](native/overlay/src/app/opening.rs),
+  Get-ChatOverlayOpenSay in src/overlay-host.ps1, the overlay-panel
+  vectors).
+- **Skippy's voice, narrowed.** The bible
+  ([design/skippy/voice/bible.md](design/skippy/voice/bible.md), Decisions
+  on record 5, section 4 "Jabs by form only", checks 8 to 11) withdraws
+  the roast bank's verdict tails ("Priorities.", "Unlike some.", "Bold."):
+  a jab is a readout, a lookup, a note to self or a fun-fact tag. "Automated
+  response: Ha ha ha." lives only in the Clippy bit, "I'm so glad I could be
+  of assistance." is its own box after he overrides or ignores the user,
+  fun facts are about the world off the screen (none about bugs or code),
+  and the Disturbia hum is also rare small talk (`talk[]` topic `melody`).
+  The Skippy pack (`data/skins/skippy`, its own repo) is swept to match.
+- **Known gap.** The pack's `status{}` lines are loaded but not said
+  (FUTURE_WORK.md, "The pack's status lines are not said").
+
+### The overlay animates on its own say
+
+- **Settings → Animations.** The native menu's Settings has
+  **Animations**: On (the default), Off, or As Windows. Until now the
+  overlay's motion followed Windows' own "Animation effects"
+  (Accessibility → Visual effects) alone, so a PC with it off - turned off
+  for the rest of Windows - never saw the HUD's box slide, its loops, the
+  glitches, the boot-in or the quest banner play. On plays them whatever
+  Windows says, Off holds them still, As Windows is the old behaviour. A
+  pick takes effect at once, no restart
+  ([win32::animations_on](native/overlay/src/win32.rs),
+  [App::animations](native/overlay/src/app.rs)).
+- **Kept in config.json** as `overlay.animations` (`on`, `off` or
+  `windows`; anything else is on), read by Get-ChatOverlayConfig and its
+  Rust port alike. The hosts take `config animations <word>` from the
+  panel, and now `config hudSize` with the menu's four sizes too, which
+  their verb checks had refused.
+
+### A quest swiped away ends in a banner
+
+- **QUEST COMPLETE under the list.** A quest row swiped to the right past
+  the kill distance in Character view, and so deleted, leaves a banner
+  under the quest list, timed frame by frame (30 fps) from a capture of
+  the game's "job complete": the words flash for a frame, then a yellow
+  plate flickers up at the left and glitches, a green badge pops in large
+  and settles, `QUEST COMPLETE` types out beside it and the chat's title
+  comes under them in green capitals, two lines at most. It holds, then
+  goes broken - the title flickers out, the label comes back scrambled
+  and cut over a red bar, the badge pops and goes, the plate fades last -
+  7.7 s in all ([card::done_frame](native/overlay/src/card.rs),
+  [card::done_banner](native/overlay/src/card.rs)). The plate and its mark
+  are drawn in code; nothing of the game's art or sound is used.
+- **When it plays.** It starts at the swipe's release
+  ([App::done_start](native/overlay/src/app/stage.rs)), a later delete's
+  replacing it, and a fold to Panel view ends it
+  ([App::switch_look](native/overlay/src/app/stage.rs)), so it never comes
+  back mid-way. Panel view's deletes, a refused swipe and `chatrm` from a
+  shell bring none. With Windows' animations off the banner shows held,
+  still, for the same 7.7 s. The list keeps room for it under its cap, and
+  with the last quest gone the banner is the window alone.
+- **A chat's state in the quest list.** Each chat row's badge and ink
+  now say six things ([card::Sign](native/overlay/src/card.rs), chosen by
+  [hud::row_sign](native/overlay/src/hud.rs)): at work, a yellow empty box,
+  lit; needs you (waiting, or Claude or a chatq job asks), a yellow filled
+  badge with a `!`, lit; finished and unread, a red badge with a `!`;
+  finished and read, a red empty box; cut off, a green badge with a
+  `!`, half lit; queued, green text and no badge. A status beats unread, so
+  a cut-off chat stays green until it clears. The order of the rows is as it
+  was, and the Panel view's colours are untouched. The card's head wears
+  the same look. The old filled-badge tick is gone from the rows; the
+  banner above keeps its own.
+- **It blinks when it changes.** A row whose state changes, or that
+  appears after the list is up, blinks as a todo does when it finishes, and
+  the blink is a lit row, as the game's: a teal bar from 4 left of the
+  badge to 14 past the longest line, 10 over the badge to 2 under the last
+  baseline, its edges falling off over 6 units so no border shows; the text
+  and the filled badge bloom in the teal and move half way to it while lit.
+  Teal on every row, whatever its sign. It runs 110 ms on, 50 off (a 160 ms
+  period) for six cycles to 0.96 s, a no-badge state's box fading out to
+  1 s, then flickering to rest at 1.25 s
+  ([card::signs_after](native/overlay/src/card.rs),
+  [card::sign_pose](native/overlay/src/card.rs),
+  [card::completion_bar](native/overlay/src/card.rs),
+  [card::badge_bloom](native/overlay/src/card.rs),
+  [card::lit_toward_bar](native/overlay/src/card.rs)). Rows there at the
+  start never blink, and with Windows' animations off the new look shows at
+  once.
+- **It blinks when clicked.** The click that opens a quest row blinks it
+  again, the same blink from the click, its state kept
+  ([card::restamp](native/overlay/src/card.rs), from
+  [App::clicked](native/overlay/src/app/pointer.rs)); a swipe is no click,
+  and with Windows' animations off nothing blinks. The cyan rectangle that
+  stood round a quest row under the pointer is gone
+  ([chip::Entry.quest](native/overlay/src/chip.rs)): the row opens on a click
+  as before, and the "click again" and "opening" words stay. Panel view's
+  tiles and the stage's tags keep their ring.
+
+### The HUD bends on the game's visor
+
+- **The character stays over the HUD.** The panel's window, the
+  character on it, is now stacked over the speech box, the quest list and
+  the gauges ([App::stack](native/overlay/src/app.rs)); dragged under one
+  of them, it could not be grabbed again without the keyboard. The card,
+  the chip, the bar, the edges and the menus are still over it.
+- **The Character view HUD curves like the game's.** The game draws its
+  HUD on a curved visor: a point's height is stretched about the monitor's
+  middle row by `1 + A u^2`, `u` the point's distance from the monitor's
+  centre in halves of its 16:9 width, `A` = 0.093
+  ([visor::A](native/overlay/src/visor.rs),
+  [Visor::map](native/overlay/src/visor.rs)). x is not changed, so the
+  centre column is flat and the edges lean toward the middle row: 1.0 at the
+  centre, 1.023 a quarter in, 1.093 at the monitor's edge. The constant and
+  the quadratic are a fit to the game's own frames, 0.37 px rms. On a
+  monitor wider than 16:9 the visor is taken as 16:9 about the centre
+  (`half` in [Visor::new](native/overlay/src/visor.rs)); the game's HUD
+  there is unmeasured, so that is a choice, not a fit.
+- **What bends, and what does not.** The gauges, the quest list, the speech
+  box and the bar of buttons are bent; the character's art (the stage's
+  image prim and its `character` hit) is only moved, never bent, and Panel
+  view, the menus, the popups and the chip ring are flat. Nothing bends
+  when the monitor is not known
+  ([App::visor_at](native/overlay/src/app/bend.rs)).
+- **The character stands at the game's size.** The game's hologram of
+  Skippy is about 300 px tall at 1080p; on the stage he stood about 125.
+  The character's box ([hud::character_rect](native/overlay/src/hud.rs))
+  grows 2.4 times, 200 x 160 to 480 x 384, so a 160 x 128 frame is drawn
+  3 up and Skippy's figure, 78 % of his frame's height, stands about 300.
+  Every skin grows with it. The stage keeps its margins round the box and
+  grows to 596 x 468; the tags, the speech box and the card stay where
+  they stood against the character. A 320 x 256 atlas is now drawn larger
+  than its pixels at 100 % scale; 480 x 384 frames (`scale` 3) are 1:1.
+- **HUD size: 50, 100, 150 or 200 %.** Settings → HUD size scales all of
+  Character view: the stage and its character, the bar, the card, the
+  speech box, the gauges and the quests. 150 % is the look above and the
+  default; 100 % is two thirds of it. Each window's Slint scale factor is
+  the monitor's times size / 150 ([App::want_scale](native/overlay/src/app.rs)),
+  so mouse hits scale with the picture; the stage keeps its top right.
+  Panel view, the menus and the chips stay at the monitor's scale. It is
+  `hudSize` in config.json (50–200).
+- **A mood sheet may hold 64 MiB decoded** (was 24), the whole 4096 x
+  4096 sheet, so a 6 s loop of 480 x 384 frames fits whole
+  ([skin::MAX_DECODED_BYTES](native/overlay/src/skin.rs)). One sheet is
+  held at a time, so the overlay grows by at most 64 MiB while such a face
+  shows. The on-disk cap stays 8 MiB. The private Skippy pack (4.16.0) is
+  rebuilt at 480 x 384 from its 640 x 512 keyed loops.
+- **A rect or a path becomes a bent path.** [visor::warp](native/overlay/src/visor.rs)
+  takes a window's prims as the layout drew them and gives prims that draw
+  the bent picture, as the Slint scene has no transforms. A rect whose
+  bend differs by under a quarter of a device pixel across it is only
+  moved, so its edges stay crisp; a wider one becomes a fill path (and a
+  ring path for a visible stroke), corners in 8 segments, lines cut to 4
+  units. A path is flattened, cut, mapped and rebuilt
+  ([Shape::figures](native/overlay/src/art.rs),
+  [Shape::from_figures](native/overlay/src/art.rs)). A cut keeps to the
+  bent box of the old one.
+- **Text is moved in whole-pixel runs, and is not stretched.** A one-line
+  text that the bend lifts differently across its width is split into runs
+  of letters where the lift, rounded to a device pixel, changes; each run
+  is a text of its own, so letters stay sharp and keep their size and
+  shape. Glyph height is not stretched, and kerning across a run's end is
+  lost. A wrapped, elided or multi-line text is moved whole.
+- **The windows stay on the screen, and the items follow.** A bent window
+  grows up and down by the bend's reach in whole device pixels
+  ([App::bend](native/overlay/src/app/bend.rs), `Bent`), the gauges and the
+  quests are moved back inside the work area's rows after it
+  ([App::redraw_hud](native/overlay/src/app/stage.rs)), and the window's
+  region, the hit rects of the rows and the speech box's reply rows are
+  bent with the picture, so a click lands on what is drawn. A row's hit
+  rect is its extent at its middle column, so neighbouring rows meet edge
+  to edge on a slant. The hover card is not bent: it stays flat, beside the
+  row as it is drawn.
+- **The HUD windows are drawn at the game's size.** The game's 1080p pixel
+  sizes are our layout units, so on a 1440p monitor the HUD is 0.75 of the
+  game's relative size (it was about 0.44 for the quests and speech, 0.62
+  for the gauges); on a 1080p monitor it is 1:1. The hover card keeps its
+  size.
+- **Gauges.** 36 pips span the bar, each cut at its bottom-left; the
+  health bar, its gaps, the badge (size, cut, stroke) and the texts
+  (labels, shares, resets, in the HUD face, no longer Segoe) take the
+  game's proportions. The gauges stand 57 from the left and 40 from the
+  top of the work area.
+- **Quests.** Sizes, indents, pitches, badge, crosshair (four L brackets,
+  a diamond and a dot lattice) and `+N more` at the game's values; the
+  text outline is the game's near-black, the tracker has a bigger haze of
+  its own (the speech box's is unchanged), and the empty box has its inner
+  black line. The right margin is 24.
+- **The quest clock is smaller, and the stopwatch is gone.** The game's
+  tracker has no clocks, and the clock's column made ours about 30 %
+  wider than the game's. The clock is 17 (the objective 21), on the
+  objective's baseline, with no stopwatch before it; its column is 52 (was
+  84), and the window 426 wide (was 458), the objective's column still the
+  game's 293 ([card::clock_font](native/overlay/src/card.rs),
+  `TIMER_W`, `QUEST_W`). The face is not the cause: at the game's cap
+  height our Bahnschrift is 6.5 % wider than the game's text (Slint draws
+  its wdth 100; the game's is about 94), and Rajdhani would be 5 % wider.
+- **Speech and tags.** The subtitle line is the game's 29 px; the subtitle
+  plate is black at 40 % (the game's 27 %, turned up to read over any
+  wallpaper), its feather 9, the reply rows' left rule 2 at 0.6 with the
+  dark line either side, the speaker tag's font 20. The stage's tags
+  (AUTO, ASK, RLD and the rest) are 27 high on a 31 pitch with a 20 px
+  face, and the stage is 316 wide.
+- **A quest row's card has no titles.** The quest window shows the row's
+  project and objective already, so its hover card is the box under them
+  alone, from the top, and comes only once it has a box (`In::bare`,
+  [card::build](native/overlay/src/card.rs)). It is open from the start
+  ([App::card_tick](native/overlay/src/app.rs)): shut, it would draw
+  nothing for the pointer to come onto, and never open. A chat's card
+  from the stage keeps its titles.
+- **Character view has no tooltips.** The game's HUD shows none: a
+  tooltip asked for there is dropped, and one asked in Panel view goes
+  when Character view comes ([App::want_tip](native/overlay/src/app/pointer.rs)).
+- **An unused window no longer says `reset`.** A window nobody has used
+  reads its reset as now plus its length at every ask - Codex's free
+  `month` at 0% moves 30 days on each time - so the overlay took each ask
+  for a rollover and said the Codex reset line. A window says `reset` now
+  only once the reset it had is past ([Watch::diff](native/overlay/src/events.rs)).
+- **Tests.** Cargo: `usage_says_75_90_and_the_reset` also checks a reset
+  that rolls on before it comes says nothing. The visor `the_centre_column_and_a_flat_visor_change_nothing`,
+  `the_stretch_has_the_measured_numbers`,
+  `a_rect_near_the_centre_stays_a_rect`,
+  `a_wide_rect_at_the_left_edge_becomes_a_path_sloping_to_the_middle`,
+  `a_stroke_is_a_ring_with_a_hole_and_comes_after_the_fill`,
+  `a_text_at_the_edge_splits_into_runs_that_step_toward_the_middle`,
+  `a_text_at_the_centre_stays_one_prim`,
+  `a_wrapped_or_cut_text_is_moved_whole`, `a_path_has_its_points_mapped`,
+  `a_hits_box_covers_the_warped_rect`,
+  `what_is_kept_is_untouched_and_at_maps_the_indices` and
+  `a_cut_follows_the_bend`; the windows
+  `the_quests_at_the_right_edge_are_bent_held_in_and_found`,
+  `the_gauges_at_the_top_left_stay_on_screen`, `panel_view_is_not_bent` and
+  `the_mascot_is_untouched_and_its_index_steps`; the card's
+  `every_quest_row_has_its_clock_and_stopwatch` is now
+  `every_quest_row_has_its_clock` (and no stopwatch); new
+  `a_quest_rows_card_is_its_box_alone`, `a_quest_rows_card_opens_at_once`
+  and `character_view_has_no_tooltips`.
+  Goldens new
+  `hud-quests-visor`, `hud-gauges-visor` and `hud-say-visor`, each looked
+  at; the HUD goldens (gauges, quests, speech, tags, stage, boot, glitch
+  and the card heads) are rewritten for the new sizes.
+  500 overlay tests pass, fmt and clippy clean.
+
+## 0.12.9 — The phone page takes the quest tracker's look
+
+- **The phone page in the quest tracker's look.** The board's rows are
+  the tracker's quests ([rowEl](docs/reply.html)): a badge first - a
+  yellow square with a `!` for work, a red empty box for a chat waiting on
+  you or cut off, a green box with a tick for a recent one, a dim empty box
+  for the queue, the idle and the older
+  ([B.rowSign](docs/reply.html)) - the folder as a small yellow line of
+  capitals above the title, which is the objective (two lines at most), and
+  the age at the right, tabular. Corners are cut, not rounded, in both
+  modes. The section heads are HUD headers - capitals, spaced, a diamond
+  before and a rule fading out after, drawn in CSS. The folder left the
+  row's small line, which keeps the rest
+  ([B.rowView](docs/reply.html) gains `proj`).
+- **Claude's turn is split into messages.** Claude writes many more chats
+  than you do, so the whole answer is drawn as the game's phone does, not
+  as one block ([B.bubbleModel](docs/reply.html),
+  [drawBubbles](docs/reply.html)), on an alert's page and in a chat's view
+  alike. The rule: each paragraph is a message of its own; a heading goes in
+  the message of the block right after it, a heading with nothing after it
+  in one alone; a code fence or a table is one message, never split at a
+  blank line; a part with no blocks makes none; the split is per part. A
+  tool line, a `-> N tools` fold (three or more in a row) and a note sit
+  between the messages as before. `CLAUDE · 14:02` heads the turn once,
+  above any tools it began with. A message has cut corners and a small
+  tail at the foot - at the left for Claude's; the chat view's newest
+  prompt is a sent message, `YOU`, on the right, its tail there. **Copy**
+  still copies the text as it was.
+- **Dark mode is the game's HUD palette.** The pink, gold and wine-black
+  look and its serif and flourish are gone: near-black, dark teal panels,
+  yellow for the headers, the accent and **Send** (a chamfered plate with
+  near-black text), HUD red for a row's age and what is cut off, mint for
+  what works, thin teal-grey lines, and condensed titles from the phone's
+  own fonts (Bahnschrift, Roboto Condensed, none loaded). The messages
+  take the overlay's own colours: Claude's a dark fill, teal-grey edge and
+  pale ink; the sent one green. **Light mode keeps its colours** and has
+  the shapes alone. The browser's bar is `#0a0c10` in dark.
+- **Nothing on the wire changed.** Only `docs/reply.html`'s looks: the
+  crypto, the compose acts, the CSP and the page's requests are as they
+  were. `tests/reply-page-check.js` now lets the CSS hold no `data:` image
+  (the flourish was the last) and `tests/board-page-check.js` holds the
+  split, the drawn messages, the badges and the project line.
+
+## 0.12.8 — The gauges and the quests take the screen's corners
+
+- **Character only is gone; its look is Character view's.** The menu's
+  **Character only** item, the `character-only` verb, the drive's `bare` and
+  `Place.bare` ([app::read_place](native/overlay/src/app.rs),
+  [app::place_json](native/overlay/src/app.rs)) are removed, with
+  `hud::stage_bare` and the `bare` argument of
+  [hud::draw_stage](native/overlay/src/hud.rs). The HUD bar and the alert
+  tags stay in Character view. An old `bare` key in
+  `data/overlay-state.json` is read past and dropped at the next save, as
+  the lock keys were.
+- **The usage arcs, the data noise, the dials and the flatline are gone.**
+  What the stage draws now is the character, the tags and the bar. The
+  bulging arcs (`hud::usage`), the faint noise of data (`hud::noise`), the
+  column of job dials (`hud::draw_dial`, its seats and its colours in the
+  look) and the drag-a-dial-to-flatline (`Drag::Flatline`, the ghost, the
+  death card, the `dial-*` drive words) are removed with their tests and
+  goldens. A dial's colours per state live on as
+  [hud::row_tone](native/overlay/src/hud.rs), which the card's head uses.
+- **A gauge window sits at the top left of the screen.** One card per
+  provider with a usage window open, Claude first, stacked edge to edge, in
+  a window of its own at a margin in from the work area's top left, on the
+  monitor the stage is on ([hud::gauges](native/overlay/src/hud.rs),
+  [hud::gauge_corner](native/overlay/src/hud.rs), `GAUGE` in
+  [app.rs](native/overlay/src/app.rs)). It follows the panel's opacity, is
+  hidden whenever Character view is not shown, takes the pointer only on its
+  cards, and a click on a card still asks for usage
+  ([App.gauge_hit](native/overlay/src/app/pointer.rs)).
+- **A card's three gauges read the share left.** Stamina is the `5h` window,
+  a thin line across the card in the new look token `stamina`; health is the
+  `week` window, the red bar with the cut corner; RAM is the model's week
+  (`Fable week`), the 15 teal pips, with no row when there is none (Codex's
+  month is not shown). Each is lit by what is left, 100 minus the percent,
+  where health was the reset time's share before
+  ([card::ram](native/overlay/src/card.rs),
+  [card::health_bar](native/overlay/src/card.rs),
+  [look.HUD_CARD](native/overlay/src/look.rs)).
+- **A gauge's text no longer runs past the card or over other text.**
+  The reset time, which ran off the right edge, and the status, which was
+  drawn over the `WEEK` share, now sit in a row per gauge, in the bars'
+  order: `5H`, `WEEK`, then the model's name (`FABLE`), each share left in
+  one column and each reset right-aligned at the card's edge, elided to the
+  room left. The status has a line of its own under them, and a label past
+  80 units is elided ([card::ram](native/overlay/src/card.rs)). The pips
+  carry no text of their own. The Character view head of a usage card has
+  no reset bar any more: the gauges say it.
+- **A cut moves with its layer.** [fade::layer](native/overlay/src/fade.rs)
+  moved a prim but not the box a cut keeps it to, so a swiped row drawn at
+  an offset lost the part of it the box had slid off (seen in a golden; the
+  look switch's slide had the same flaw).
+- **A quest window sits at the right edge.** The chats are the quests of
+  the game's tracker, in a window of its own at the work area's right edge,
+  below the top: a yellow caps header and crosshair per project (rows
+  grouped by `cwd`, else `project`; no folder is `OTHER`), the most urgent
+  group first, and under each a row per chat, its sign badge and title in
+  up to two lines, tinted by tier as the hover card's head is. Recent lines
+  are not quests. Past the height the list stops with `+N more`
+  ([card::quest_list](native/overlay/src/card.rs),
+  [hud::quests_corner](native/overlay/src/hud.rs),
+  [hud::row_sign](native/overlay/src/hud.rs)).
+- **Every quest row has a timer.** At its right, a red stopwatch and the
+  time Panel view's tile shows ([model::format_row_clock](native/overlay/src/model.rs)),
+  always, not on hover ([card::stopwatch](native/overlay/src/card.rs)). A
+  title wraps short of it.
+- **Swipe a quest right to delete it.** The panel's swipe, only to the right:
+  the row slides over the red block, and a release past the kill distance
+  deletes the chat as the panel's does (`delete <key>`). A chat in use says
+  IN USE at the foot and stays. A move up or down moves nothing, where it
+  used to move the stage ([App.quest_hit](native/overlay/src/app/pointer.rs),
+  [App.swipe_let_go](native/overlay/src/app/pointer.rs),
+  [App.in_use_said](native/overlay/src/app/pointer.rs)). Resting on a row still
+  puts up the chip and card, now beside the quest list
+  ([App.entry_frame](native/overlay/src/app.rs)).
+- **The say box and the hover card hang from the character.** With the
+  dials gone, the box is placed by the character's own rect and the card's
+  pull is measured from the character's right edge plus 5, as Character only
+  did ([hud::Stage](native/overlay/src/hud.rs) `say_at` and `marks_right`,
+  [Card.hud_pull](native/overlay/src/card.rs)).
+- **Tests.** Cargo: `an_old_bare_key_is_read_past_and_written_away`;
+  the gauges `gauges_stack_claude_first_one_card_each`,
+  `a_provider_with_no_open_row_has_no_gauge`,
+  `the_gauge_keeps_to_the_work_areas_top_left`,
+  `the_gauge_card_lights_stamina_health_and_ram_by_share_left`,
+  `a_gauge_has_no_ram_row_without_a_model_week`,
+  `a_gauges_text_never_overflows_or_overlaps` and
+  `a_click_on_a_gauge_card_asks_for_usage_and_a_release_off_it_does_not`;
+  the stage `the_stage_says_at_the_character_and_takes_only_its_region_and_the_tags`;
+  the quests `the_quests_keep_to_the_work_areas_right_edge`,
+  `quests_group_by_folder_and_order_by_the_most_urgent_row`,
+  `every_quest_row_has_its_clock_and_stopwatch`,
+  `the_quest_list_caps_to_its_height_with_more`,
+  `a_quest_title_wraps_to_two_lines_and_never_reaches_the_clock`,
+  `a_recent_row_is_not_a_quest`,
+  `a_swiped_quest_row_slides_right_over_red_past_the_kill` and, in the
+  pointer, `a_quest_row_swiped_right_past_the_kill_is_deleted`,
+  `a_quest_row_swiped_left_or_short_deletes_nothing`,
+  `a_quest_row_in_use_swiped_past_the_kill_says_in_use_and_stays`,
+  `a_quest_row_moved_up_or_down_moves_nothing` and
+  `a_quest_row_is_an_entry_for_the_chip`; `a_layer_moves_a_cut_with_its_prim`.
+  Gone with what they held: the
+  bare, dial, arc, noise and flatline tests. Goldens new `hud-gauges`,
+  `hud-gauges-long`, `hud-quests`, `hud-quests-capped` and
+  `hud-quests-swiped`; redrawn `hud-stage-busy`, `hud-boot-mid`,
+  `hud-glitch`, `hud-tags-four-fold`, `hud-builtin`, `card-hud-usage`,
+  `menu-dark` and `menu-light`; deleted `hud-stage-bare`,
+  `hud-builtin-bare`, `hud-stage-five-plus` and `hud-flatline-*`. Each
+  looked at. 476 overlay tests pass, fmt and clippy clean.
+
+## 0.12.7 — The card takes the game's shapes
+
+- **A dragged row shows both blocks from the first move.** In Panel view
+  the space a swiped row uncovers is no longer bare until the kill
+  distance, nor whole only once the row is let go open: the grey block
+  with the three dots uncovers first, beside the row, and the red block
+  with the bin grows outside it once the grey is full, each glyph riding
+  with its block ([hud::swipe_ground](native/overlay/src/hud.rs),
+  `Ground::split`). Only
+  a row on its way out slides over one block - red for a delete, grey for
+  a snooze or an archive ([panel::Swipe](native/overlay/src/panel.rs)
+  `out`, which replaces `springing`).
+- **A chat in use shows its bin locked while dragged, too.** The dimmed
+  red block and bin replace the IN USE that stood on the bare ground; a
+  click on that bin still says IN USE at the foot.
+- **Panel opacity reaches Character view.** The dials, tags, usage marks,
+  data noise, flatline and the bar of buttons now fade with it, as the
+  panel does; the character stays at full strength
+  ([hud::StageIn](native/overlay/src/hud.rs) `opacity`,
+  [controls::hud_bar](native/overlay/src/controls.rs)). The speech box
+  and the hover card are as they were.
+- **Tests.** Cargo: the panel's swipe tests now pull to a split and send
+  rows out with `going_out`; `a_swiped_tile_slides_and_its_two_blocks_show_from_the_first_move`,
+  `a_refused_tile_slides_and_shows_its_bin_locked` and
+  `a_row_not_held_open_keeps_its_split_look_at_the_kill_and_takes_no_click`
+  renamed. Goldens `panel-swipe-damage`, `panel-swipe-kill` and
+  `panel-swipe-refused` redrawn,
+  each looked at. New `the_opacity_fades_all_but_the_character`; the HUD
+  bar's strip test checks it at 0.6. 494 overlay tests pass, fmt and
+  clippy clean.
+- **A gauge's card is the deck's RAM.** In Character view a usage gauge's
+  card has no title: its letters (`CL`) sit in a level badge in the RAM's
+  teal, cut at the bottom left. Under it the window's share left is the
+  game's health bar across the card - a grey line of the whole, the red
+  under it - and each window is a row of 15 teal pips of what is left, its
+  label, its share and, on the one that resets first, the reset time
+  ([card::ram](native/overlay/src/card.rs), the look's `ram`, `health`
+  and `health-max`). Golden `card-hud-usage` redrawn.
+- **The box under the floating titles is the game's window.** Cut at the
+  top left only, the other corners square, its top edge twice the
+  sides' (the inbox's own: two units of `trim` along the top, one on the
+  sides), where the first cut was a shape of ours, chamfered at two corners
+  ([card::face_hud](native/overlay/src/card.rs)). The 'frame' fill and
+  'trim' edge are the look's, so skins still colour it.
+- **A message is the phone's bubble.** A nick at each top corner, a bevel
+  at the foot corner away from the speaker, and at the near one a tail:
+  the side runs on four units below the foot and slants back to it. Claude's
+  is at the left with the tail at its bottom-left; yours mirrors it at the
+  right. The tail's height is part of the turn's, so the next one never
+  touches it ([card::msg_bubble](native/overlay/src/card.rs)).
+- **The titles are cleaner.** The old dark outline was eight copies of
+  the text, shifted by fractions of a unit, which landed on different
+  pixels and left an uneven rim that fattened the letters. In its place
+  is a dark ring of four copies one whole unit out, in the badge's dark at
+  four fifths of the ink's strength: they fall on the ink's own pixels, so
+  the strokes stay thin, and the game's `#FFF850` still reads on a
+  near-white wallpaper (bare, it was 1.05:1). Over it a faint haze, three
+  rings of eight copies 1.5, 3 and 4.5 units out, each turned a third of a
+  step on the one inside it, in an orange where the red read as a dark
+  fringe: it fades out, with no rectangle's edge, and does not wash a light
+  scene pink. Every line sits on a whole unit (the row pitch is 19 and a
+  wrapped line's 17, where they were 19.25 and 16.5), so the objective is
+  as sharp as the caps line. The face is Bahnschrift at 13 units and
+  weight 350, not 12.5 at 400, whose strokes were two pixels thick
+  ([card::quest_text](native/overlay/src/card.rs),
+  [hud::haze_text](native/overlay/src/hud.rs)).
+- **The speech box's replies are crisp and alike.** The choices are set
+  in Bahnschrift as the card's titles get it, Regular at 15 units, on the
+  plate and off it, not the dialogue's Rajdhani. The rows sit on whole
+  units: a 21-unit pitch, each row's top and its text rounded
+  ([hud::row_top](native/overlay/src/hud.rs),
+  [hud::row_text_top](native/overlay/src/hud.rs)). The spec's 20.52 pitch
+  put each row on its own pixel phase, so one row's shadow came out clear
+  and the next one's did not. An unlit reply is its ink in its own colour
+  over a halo of eight black copies 1 unit out at 0.35, no colour haze and
+  no drop shadow, the same for yellow and cyan rows; the lit plate's text
+  is plain ([hud::reply_text](native/overlay/src/hud.rs),
+  [hud::row_font](native/overlay/src/hud.rs)). The quest tracker's
+  look is unchanged. At a screen scale above 100 % a whole unit is not a
+  whole pixel (125 %: 1.25), so the rows' tops and text tops, and the
+  card titles' line tops (the badge and the objective rows with them),
+  are rounded to whole device pixels instead
+  ([hud::dev](native/overlay/src/hud.rs), `round(v * scale) / scale`,
+  with the window's scale factor in `hud::SayIn` and `card::In`): the
+  steps between rows are then 26 or 27 pixels at 125 %, in a fixed
+  pattern, and every row meets the pixel grid alike. The windows' own
+  places are whole physical pixels and the drawing's corner in them is
+  rounded up to one, so the rounding holds on screen. The picker's slide
+  in from the left moves a whole device pixel a step above 100 %
+  ([hud::fine](native/overlay/src/hud.rs)), so the text stays on the
+  grid every frame; the fade is only opacity. At 100 % the output is
+  what it was.
+- **The card is narrower.** 280 units, not 330, in both views
+  (`model::CARD_WIDTH`); Character view's card is that and its icon column.
+- **The card is on the panel's right.** It goes on the left only where it
+  does not fit on the right; where it fits on neither, on the roomier side
+  as before. The chip's words still go on the roomier side, and the card
+  goes past them only if it is on theirs
+  ([model::card_left](native/overlay/src/model.rs),
+  [model::card_placement](native/overlay/src/model.rs)).
+- **The card on the right sits close to the dials.** Three offsets
+  stacked there: the stage's window is 16 units wider than its top dial's
+  brackets, the card's gap is 5, and a chat's card had a 30-unit icon
+  column it never draws in. A chat's card (short or boxed) now has no icon
+  column, its text at the padding, and on the right it reaches back over
+  the stage's clear margin - it takes no pointer. The titles stand 8
+  units from the top dial's brackets, short or expanded, and stay put when
+  the card expands: the box's outline, 12 before them, reaches a few
+  units over the brackets' line. (On either side, and in the panel's card
+  too, only the screen's foot moves them: an expanded card that no longer
+  fits under its row is held up to the foot.) The fit on the right is asked with
+  that reach, so a card that needs it near the screen's edge is not sent
+  to the left. The lower dials' marks are no wider than the top one's, so
+  a lower dial with no hour ticks shows a few units more. A card on the
+  left is not moved by this reach (see the next entry), nor is a gauge's,
+  nor one past the chip's words
+  ([card::Card::hud_pull](native/overlay/src/card.rs),
+  [model::card_placement_pulled](native/overlay/src/model.rs)).
+- **The card on the left stands off the character, not the stage.** The
+  character is fit in a 200 x 160 box and a narrow picture leaves most of
+  its box empty, so the card, put a gap off the stage's edge, floated 100
+  pixels or so from the character. Where it goes on the left it now
+  reaches back over that empty room, until its crosshair, the rightmost
+  thing it draws, stands 8 units from where the character's art begins.
+  That edge is the leftmost column with any alpha (16 or more) in any
+  frame of any of the skin's atlases, one at a time and let go, so it is
+  the same whatever the face is doing and the card never moves with it;
+  it is worked out once per skin worn, the first time a card is placed in
+  Character view, and a skin with no art in it (or that cannot be read)
+  gets no reach. As on the right, the fit on the left is asked with the
+  reach taken, the titles stand in the same place short or expanded, and
+  the window takes no pointer over the room it reaches into
+  ([anim::art_left](native/overlay/src/anim.rs),
+  [hud::art_edge](native/overlay/src/hud.rs),
+  [card::Card::hud_pull_left](native/overlay/src/card.rs),
+  [model::card_placement_pulled](native/overlay/src/model.rs)). The room
+  the alert tags and the stage's other marks keep at the left of the
+  stage is not asked about: a card on the left can cover a tag.
+- **The card waits half a second before it goes.** The pointer that leaves
+  the row and the card, onto the gap between them or off the panel, finds
+  the card still there for 500 ms (it was 300): back on the row or the
+  card within that, it is the same card - not shut and asked for again, so
+  nothing flickers. A press, the panel hiding, a theme or view switch, or
+  another row under the pointer still take it down at once
+  ([model::CARD_GRACE_MS](native/overlay/src/model.rs),
+  [model::chip_target](native/overlay/src/model.rs),
+  [Chip::update](native/overlay/src/chip.rs)). The chip's ring, which goes
+  with the card, waits as long; the shared vectors keep the WPF overlay's
+  300.
+- **An idle chat's objective is the game's red.** A chat that is queued
+  or idle was the theme's dim teal-grey under the tracker's dark-red ring,
+  which read as a pink rim. It is now `QUEST_RED`, the ink of the todo rows
+  and the alert's, unlit, with the hollow badge it had: the game's
+  objective that is not active
+  ([card::quest](native/overlay/src/card.rs)).
+- **The cards appear as the speech box's dialog does.** A chat's card
+  (short: its titles) and a gauge's card play the dialog line's appear in
+  30ths of a second ([hud::step](native/overlay/src/hud.rs),
+  [hud::line_at](native/overlay/src/hud.rs)): the project in capitals,
+  with its crosshair, is the name - it slides in from the left over 9
+  steps, with the dialog's strength and its bloom - and the objective with
+  its badge is the text, which dips at steps 3 and 4 as the dialog's does;
+  a gauge's badge and letters are its name. The bloom goes at the last
+  step, where the dialog keeps a faint one: the caps keep their haze alone,
+  so a card at rest is the drawing it was. Expanding a chat's card, by the
+  pointer coming onto it, plays the reply picker's entrance on its body
+  alone ([hud::hub_at](native/overlay/src/hud.rs)): the box wiped in from
+  the left in 4 steps, and everything in it faded in and slid in from the
+  left over 7; the titles stay put. A gauge's body (its bars and rows)
+  takes the same entrance with its titles, in one step: its letters
+  (`CL`) and the rest come in together.
+  Every offset is on a whole device pixel at the window's scale
+  ([hud::dev](native/overlay/src/hud.rs)). Like the box, the cards play
+  whatever Windows' animations say, and the card asks for a frame only
+  while a step is due ([card::appear](native/overlay/src/card.rs),
+  [card::appear_wake](native/overlay/src/card.rs)). The old 500 ms fade
+  and pale tint of the tracker, and the 150 ms slide of the whole card, are
+  gone for these cards (a marker's card still slides in); a row's own
+  arrival and a completed row's blink are as they were. Tests: the
+  titles' steps, the body's, the gauge's, the clock and the wake in
+  card.rs, the animations-off card and its frames in the pointer tests.
+- **A gauge has no tooltip.** Resting on a usage gauge, in the panel or
+  on the HUD's arcs, no longer brings up "Click to ask Claude, Codex and
+  Copilot for usage now" over its card; a click still asks
+  ([App.panel_hit](native/overlay/src/app/pointer.rs)).
+
+## 0.12.6 — A row swiped open has a menu
+
+- **A row let go open shows two blocks, not one.** In Panel view the open
+  distance is split in halves: the red bin block outermost, a grey block
+  with three dots beside the row (mirrored for a swipe to the right). While
+  the row is dragged the look is as before (bare, then full red past the
+  kill); the split shows only once it is let go
+  ([hud::swipe_ground](native/overlay/src/hud.rs),
+  [panel::bin_rect and more_rect](native/overlay/src/panel.rs)). Its hits
+  are `bin:<key>` and `more:<key>`, over the row's own. A row springing
+  back from open keeps the split for its first frame instead of flashing
+  full red, or IN USE.
+- **A chat in use swipes open too.** The rubber band is gone
+  (`SWIPE_RUBBER`): a refused row follows the pointer one to one, says IN
+  USE past the kill while dragged, and let go it stays open with its red
+  block and bin dimmed to 0.4. A click on that bin sends nothing and puts
+  a dim IN USE at the panel's foot for 5 s
+  ([App::bin_click](native/overlay/src/app/pointer.rs)).
+- **The dots open the row's menu**, under the grey block, the row staying
+  open: Mark read or Mark unread, Snooze (1 hour, 4 hours, Until tomorrow,
+  08:00), Open and Archive
+  ([trayicon::row_menu](native/overlay/src/trayicon.rs),
+  [App::open_row_menu](native/overlay/src/app/popup.rs)). What the row
+  cannot take is greyed with a tip that names the cause: Mark read for a
+  chat at work, a tab-only one or a Recent line; Snooze and Archive for a
+  job or a line with no session; Archive for a chat in use or not
+  Claude's. However the menu shuts - Esc, a press outside, the dots again,
+  a pick - its row springs back, and the row shut or gone shuts the menu.
+  One click on the bar's gear shuts the menu and opens no other.
+- **Snooze.** A snoozed chat leaves the rows, the counts, the tray, the
+  HUD and the phone board until it wakes: when its time is up (1 h, 4 h,
+  or 08:00 on the next calendar day), when it starts waiting on you, or
+  when it goes from busy or waiting to idle. Recent fills its place. The
+  list is `data/overlay-snooze.json`, kept across a restart
+  ([snooze](native/overlay/collect/src/snooze.rs)); live alerts and
+  pushes still fire. A snooze says `snoozed '<title>' until HH:mm` at the
+  foot. The tray's **Snoozed (n)** submenu lists them, a pick wakes one
+  (`unsnooze s:<sid>`); it is absent with none snoozed.
+- **Mark read and Mark unread** are the host's `read` and `unread` verbs
+  (Mark read for any chat, Mark unread for a live chat only; the dot stays
+  in the overlay's memory as before).
+- **Archive acts like delete on an open chat.** `chatarchive` and the
+  menu's Archive close the chat's VS Code tab where a window names it, and
+  refuse a chat open in a window where its tab cannot be told apart
+  ([Remove-ChatSessionById](src/chatrm.ps1),
+  [Invoke-ChatTake](src/chatrm.ps1)). A row sent away slides out over
+  grey; a delete's goes over red. The PowerShell host carries `archive` as
+  an act step too ([Invoke-ChatOverlayActStep](src/overlay-host.ps1)).
+- **New words.** The foot and the log say ARCHIVED or NOT ARCHIVED for an
+  archive and SNOOZED for a snooze
+  ([model::say_word](native/overlay/src/model.rs),
+  [Get-ChatOverlaySayWord](src/overlay-windows.ps1)); the extension says
+  "archived" in place of "deleted" for a tab it closes or leaves open for
+  an archived chat.
+- **`menu <name|verb>`, `bin-click` and `more-click` on the drive**
+  ([App::drive_line](native/overlay/src/app/pointer.rs)); a greyed item
+  is passed over, as a click on it is.
+- **Tests.** Cargo: the panel's blocks, hits and centring, the row menu's
+  open, shut, pick and greyed cases, the gear's one-click rule, the exit
+  over grey, the snooze pass and its wake rules, the verbs' grammar. Goldens:
+  `panel-swipe-open` and `panel-swipe-refused` redrawn, `panel-swipe-open-in-use`
+  and `menu-row` new. The tray goldens are unchanged. 894 cargo tests (460
+  overlay, 355 collect, 79 in the crates' `tests/`), 523 extension checks, 2015
+  PowerShell checks on 5.1 and 2016 on 7, 49 vector files agreeing under both
+  shells. See TESTING.md, "The row menu and snooze".
+
+## 0.12.5 — Skin packs as .zip files
+
+- **Skin > Import pack... and Export pack (Windows).** Import opens a
+  Windows Open window for a .zip, checks it, adds it to `data\skins\` and
+  puts it on the character. Export saves a pack you have as a .zip to
+  share or keep. The zip work runs in a child of the overlay exe, so a
+  damaged or hostile zip cannot stall the panel; a refusal shows in a box
+  from that child, a success in a balloon.
+- **Two VS Code commands (Windows only):** "Skin pack: import a .zip..."
+  and "Skin pack: export as a .zip..." in the Chat Manager category. They
+  run the same exe from the extension's own `payload\bin\`, say whether the
+  running overlay took the pack by itself (it does when it is this
+  version; otherwise Skin > Refresh, or a restart), and offer Show pack
+  folder and Pack format.
+- **A replace asks first and loses nothing.** A pack with the same id as
+  one already there is replaced only on a Yes (`--replace` on the command
+  line), after every check has passed; the old folder is kept in
+  `data\skins\.replaced\<id>-<time>\`. A folder that holds anything a pack
+  does not (`.git`, `drafts\`, a `.webm`, a README, a link) is an author's
+  working copy and is never replaced; the refusal names what it found.
+- **Default exports as a starter.** Skin > Export pack > Default (as a new
+  pack)... writes the built-in skin with an id and name taken from the
+  file name you give, version 0.1.0 and no author, to import and edit.
+- **A refusal says what to do, and where the format is.** Each refusal
+  gives the absolute folder it means and, where fixing the zip helps,
+  offers the format page (docs/skin-pack.md, "A pack as a .zip"). Only
+  Stored and Deflate zips are read; Deflate64, ZIP64, split and
+  password-protected ones are refused with their own words.
+- **A pack of a newer format says to update Mk5.** A `skin.json` with a
+  `format` above what this overlay reads is refused with "Update Mk5, then
+  import again" and the format page, once the zip itself reads, before
+  the id and loader checks.
+- **Export refuses an id over 64 characters** (an import would), before
+  writing anything; the refusal says to rename the folder and its `id`.
+- **A failed Open or Save window is a refusal, not a cancel.** The panel's
+  balloon says the window could not be shown, with the Windows error code. The picker is
+  per-monitor DPI aware.
+- **A OneDrive placeholder is not a link.** Only a symlink or junction
+  stops an export or an import's replace.
+- **The starter's balloon names the format page** (its URL, first, so no
+  long name or path cuts it), then the .zip to import and where to edit
+  the new pack.
+- **`moodmap.json` is limited:** a .zip import refuses a `moodmap.json`
+  over 64 KB. At every load at most 256 regexes are tried, each held to
+  256 KiB of compiled size, and the rest are skipped with a note in the
+  log. The built-in map is 110 bytes.
+- **New command line on `chatq-overlay.exe`:** `--skin-import`,
+  `--skin-export` and `--skin-list`, each ending in one JSON line; the
+  panel's host takes one new verb, `skin <id>`, so VS Code can have the
+  running overlay wear the pack it just imported.
+
+## 0.12.4 — The card comes short, and its titles float
+
+- **A chat's card comes short, and opens when the pointer moves onto it.**
+  Resting on a row brings the chip and a short card: the chat's head
+  alone, no todo list and no body. Move the pointer onto the card and it
+  expands; it stays expanded until the pointer leaves both the row and
+  the card, then both go. The head does not change on expand, so nothing
+  jumps. `card <key>` is asked once when the short card shows (the model
+  is ready by the time it opens) and again every `CARD_AGAIN`, 2 s, only
+  while expanded. Usage, notice, ask and reload cards are unchanged. The
+  card window is still click-through
+  ([card::build](native/overlay/src/card.rs), [card::chat_head](native/overlay/src/card.rs),
+  [App::card_open](native/overlay/src/app.rs), [App::card_tick](native/overlay/src/app.rs),
+  `chip::Check.on_card`).
+- **The Character card follows the quest canon.** The project is the
+  quest title: capitals, yellow, outlined and glowing, no badge, one line.
+  The chat's title is the objective row under it, with the state's badge
+  on its first line, wrapped to two lines. Ink per state: working yellow,
+  needs you or cut off red, done green, queued or idle dim. The crosshair
+  is at the top right, and the todo rows follow the objective
+  directly ([card::quest](native/overlay/src/card.rs)). The titles float
+  with no box behind them, as the game's tracker does; what an open card
+  adds sits in a box of its own under them, so the short card has no box
+  at all (`Card.boxed`, [card::face_hud](native/overlay/src/card.rs)).
+  Your prompt and Claude's reply are the phone's messages
+  (design/cp-ui/ref/message): Claude's a received one at the left, dark
+  with a teal-grey edge, yours a sent one at the right in green, each cut
+  at its bottom-right corner.
+
+## 0.12.3 — The answers wait for the line
+
+- **No reply comes with its line.** Every box with replies - the dialog
+  hub's rows, a node's `ask`, a scene's replies and the reset ask's
+  Continue / Leave them - shows its line first and its rows once the
+  line has been said: `max(800, 70 x characters)` ms after it, the game's
+  pace measured off its footage (17 onsets in the Skippy and Regina
+  clips: 0.87 s after "V.", 2.4 s after 32 characters, 4.5-4.8 s after
+  56; never with the line). This replaces the `ask`'s fixed 600 ms
+  (`ASK_WAIT_MS`), and the hub, a scene and the reset ask, whose rows
+  came with their line. A click on the box brings them at once; keys
+  reach no row before they show. The wait is pacing, not motion, so it
+  holds with Windows' animations off too. [hud::rows_wait_ms](native/overlay/src/hud.rs),
+  [App::rows_at](native/overlay/src/app/stage.rs).
+- **A scene's replies wait for its last turn.** A `say` of several turns
+  showed its replies under the first; they now come under the last.
+- **An `ask` stays up 5 s from when its row comes**, not from its line
+  ([Talk::due](native/overlay/src/talk.rs)), so the wait takes nothing
+  from the time to answer.
+- **The Overlay task no longer writes into `bin/`.** It built the
+  working tree and copied it over `bin/<version>/`, so a dev build sat
+  where the release's exe goes and the two could not be told apart. It
+  now builds into `native/overlay/target/x86_64-pc-windows-msvc/release/`
+  and the launcher starts that build over `bin/<version>`'s while it says
+  the same version and is the newer ([Find-ChatOverlayPanelExe](src/overlay.ps1));
+  `bin/` holds only what `native/stage.ps1` stages. The running exe's
+  path says which it is.
+- **A new face pops in.** A mood that changes the character's face on
+  the stage no longer cuts straight to it: the picture is gone for a
+  step, then stretches tall, shrinks, goes again and squashes flat
+  before it settles, scaled about its foot, about 200 ms in the box's
+  30ths. This is the game's own pop between its hologram's poses, read
+  off its footage (a one-frame blank at every pose switch, the stretch
+  and squash at many); it has no colour split or slices. Not over a
+  boot-in, nor with Windows' animations off
+  ([hud::SWAP](native/overlay/src/hud.rs), [App::swap_start](native/overlay/src/app/stage.rs)).
+- **The picker builds in as the game's.** The rows' entrance is the clip's,
+  measured at its 30 fps: the lit row's bar is a solid stub 2/9, 4/9, 6/9
+  and 8/9 wide over four steps with its text dark along the whole row,
+  then the full plate; the whole cluster (rows, rules, key badge,
+  pointer, not the speaker's tag) fades in at 0.55, 0.72, 0.90 and slides
+  in from 12 px left over seven steps, about 233 ms, no vertical motion.
+  It replaces the see-through plate and the dim flicker
+  ([hud::HUB_WIPE](native/overlay/src/hud.rs), [hud::HUB_REST](native/overlay/src/hud.rs)).
+- **The box moves with Windows' animations off too.** The line's flicker,
+  the picker's entrance, a hover's wipe and the ask timer's smooth drain
+  all play whatever Windows' "animations" setting says: the box is the
+  game's look, and that is the user's call. The rest of the overlay (the
+  stage's boot-in and glitch, the pointer, the cards) still follows
+  Windows. The rows' wait is unchanged
+  ([App::motion_now](native/overlay/src/app/stage.rs), [App::say_wake](native/overlay/src/app/stage.rs)).
+- **A pick is the clip's: no glitch.** The chosen bar is held 60 ms, the
+  box is cut, it stays empty 100 ms, then the next line comes
+  (`PICK_HELD_MS`, `PICK_BEAT_MS`; it was 0.7 s, a 0.7 s glitch and 1 s).
+  The pick's glitch is gone ([Talk](native/overlay/src/talk.rs)).
+- **The bar goes with the mouse.** When the mouse leaves the lit row its
+  bar goes, and no row is lit until it enters a row again (the plate
+  wipes in) or a key is pressed - a key only lights a row, Enter too, and
+  never picks ([App::say_hit](native/overlay/src/app/stage.rs), `SayUp::away`).
+
+## 0.12.2 — alerts.log rolls, and the arrows keep their binding
+
+- **alerts.log rolls** to `alerts.log.1` past 1 MB, as watcher.log and
+  the other logs do: [Send-ChatqAlert](src/alerts.ps1) and chatqd's
+  [log::add_alert_line](native/crates/chatq-core/src/log.rs), through the
+  one `roll` it now shares with `add_log_line_in`. The tool never reads
+  the file back, so a roll loses nothing it uses.
+- **The arrows keep their binding on a second `. $PROFILE`.** Run again
+  in a shell that had the tool loaded, it recorded its own
+  `ChatCycleOrHistory` as what Up and Down did before, and a binding of
+  the user's own (`HistorySearchBackward`, say) was gone until a new
+  shell. [Get-ChatArrowWas](src/shell.ps1) keeps what the first load
+  recorded, and [core.ps1](src/core.ps1) no longer clears it on a reload.
+- **A damaged held.jsonl no longer holds back the quiet-hours summary.**
+  A held alert whose `at` does not read stopped
+  [Get-ChatqHeldItems](src/phone-extras.ps1), and every summary after it;
+  it is now kept and listed first, as `--:--`.
+- **The alert page's usage line wraps.** It took the board's usage grid
+  (`docs/reply.html`), so a long footer ran past a phone's right edge; the
+  grid is `#bUsage`'s alone.
+- [Test-ChatIdle](src/chatrm.ps1) reads a live session's start through
+  [Get-ChatqEntryStart](src/live-chats.ps1), so a `StartedAt` that is not
+  epoch milliseconds falls back to the process's start instead of writing
+  an error.
+- **Tests.** Two self-test runs at once, 5.1 and pwsh, both pass, each in
+  its own sandbox. The `overlay-hostwork` vector no longer flakes under
+  5.1: [Invoke-NvOverlayHostWork](tests/vectors/overlay-hostwork.ps1)
+  gives a rewrite a write time past the old one, as the Rust harness
+  does. A queued Codex job the suite cannot find fails one check naming
+  the sandbox's job files instead of ending the run.
+- **A Ferris skin pack, drawn from code.** `skins/tools/make_ferris.py`
+  writes `data/skins/ferris/`: Ferris the crab (public domain), drawn
+  with PIL and CC0, seven moods of 24 frames each, a tray icon cut from
+  the shell, and the default lines under the voice `FERRIS`.
+- **No more STATUS lines.** A host's said (a chat done, busy, late, a
+  delete) and the reset ask were headed `STATUS` in a dim label; the
+  character says them in the skin's voice, as its own lines
+  ([App::say_content](native/overlay/src/app/stage.rs)).
+- **A beat before the answer.** A dialog node's `ask` row ("Why not?"
+  under "No.") comes 600 ms after its line, `ASK_WAIT_MS` in
+  [hud](native/overlay/src/hud.rs), so the line lands before the answer is
+  offered; with motion off it comes at once. The hub's rows, a scene's
+  and the reset ask's come with their line as before.
+- **Every clock turns to days at a day.** A panel tile's clock read
+  hours up to 99 (`91h12`) and only then days; it now reads `1d01` from
+  24 hours, as a chat's age does
+  ([model::format_row_clock](native/overlay/src/model.rs), and the
+  console's [Format-ChatOverlayRowClock](src/overlay-data.ps1)). A HUD
+  dial at work, which counted hours with no end, and a countdown, which
+  turned at two days, both turn at one
+  ([hud](native/overlay/src/hud.rs)). Seven `panel-*` goldens redrawn.
+- **The rows sit closer under the line:** 4 units below the box's plate,
+  not 10 (`ROWS_GAP`), and the plate ends 17 units under the last
+  baseline, not 27 (`PAD`), so every box is shorter and its text sits
+  even in it. Twelve `hud-*` goldens redrawn.
+- **The box sits closer under the character:** placed under the stage,
+  it is 10 units below it, not 40 (`SAY_BELOW` in
+  [hud::place_say](native/overlay/src/hud.rs)); the stage's foot already
+  stands clear of the arcs.
+- **No version line on the stage.** The `SYS.OVR v…` line under the
+  usage arcs' right end is gone from the data noise
+  ([hud::noise](native/overlay/src/hud.rs)): at a character's size it was
+  too small to read and showed as a stray chip. The tray menu still
+  names the version. Nine `hud-*` goldens redrawn.
+- **Skippy pack** (private): "It looks like you're trying to be funny" is
+  only the answer to "Anything." after "Please say anything to continue."
+  in the usage report of the dialog hub, no longer a click line or a
+  reload roast; the voice bible says so. The faces' base is cut in a
+  downward arch, not flat.
+- Deferred (DEFERRED.md): a chat open in a bare root (`/`), and the
+  overlay's cached usage with `CLAUDE_CONFIG_DIR` set to `~/.claude`.
+
+## 0.12.1 — The character talks back, and a pack can ship five faces
+
+- Click the character (press and let go) and it talks: a box of up to five
+  questions. Gold: the usage the usage bar shows (the providers a chat is
+  open for) with each window's reset, the chats that need you,
+  are cut off or are working, and the machine's memory and the data drive.
+  Blue: two of Skippy's own scenes. A click elsewhere, even a quick one, or
+  Esc with the pointer on it closes it. It replaces the click poke; a rest
+  on the character still pokes.
+- Every skin has it: the built-in one asks the first three plainly, and a
+  pack writes its own in a new `dialog` section of lines.json
+  (docs/skin-pack.md).
+- **The talk is a monologue, and slower.** The hub's questions are the only
+  choice: a pick lights its row for 0.7 s, glitches it for 0.7 s, cuts the
+  rows, and the box stays empty for 1 s before the character talks on by
+  itself, node to node along `go`, and the talk closes at the end of the
+  chain. Keys and clicks are ignored while the pick runs. The talk's boxes
+  have no Next: each is held `max(1300, 150 + 90 x characters)` ms, then
+  cut, and the box is empty for 0.13 s before the next (a click on a box
+  hurries it). Skin lines, scene cues and the reset ask keep their pacing.
+- **A scene can ask you something, once.** A node's `ask` puts one cyan
+  row under its last box for at least 5 s: pick it and the character
+  answers, leave it and the row is cut and the answer skipped.
+- **`dialog` in lines.json changes:** `opts` and `again` are gone (the
+  loader refuses them); a node's `say` is a list of turns, each a string
+  or `{"you": "text"}`; a top-level `"you": "V"` names the user's
+  character, echoes the picked row as a box of theirs and labels the
+  you-turns (with no `you`, no echo, and a you-turn is refused). Skippy's
+  dialog is rewritten on it with no `you`: after the pick only Skippy
+  talks, and V's two questions in the diagnostics and the volume scenes
+  are asks.
+- **Character only** in the menu hides everything but the character; the
+  menu, tray and hotkey stay as ways out, and it survives a restart.
+- The host writes `header.sys` (memory and the data drive's free space)
+  on every pass, read every 10 s and held within a small slack.
+- **`ready` may fall back to `idle`.** A pack that sets
+  `"fallback": { "ready": "idle" }` need not ship `moods/ready`, so it can
+  carry `idle pleased sad angry scared` alone; a mood with no face of its own
+  wears its fallback's, else `ready`'s if there is one, else `idle`'s, and the
+  tray's default mood is `idle` where there is no `ready`. `fallback.ready`
+  naming anything but `idle` is an error. The built-in skin and every pack
+  that ships `ready` load as before. See `docs/skin-pack.md`.
+- **Every usage window that rolls over says `reset`.** It used to need the
+  window to have reached 90% or its limit first; now any window seen before
+  whose reset moves on says it, once a window, so a skin can greet each
+  refill. A window the overlay sees for the first time is not a rollover.
+- **The menu stays over the panel.** A window of the panel's shown while
+  the menu was open - the edges and the bar on hover - landed on top of it,
+  and the menu sat behind the character or the panel for a few seconds.
+  Showing one now puts the menu back on top, and a check every 120 ms
+  restacks and logs `ui: menu under <windows>` should anything else lift
+  above it. Every shut now logs why: `ui: menu shut: <reason>`.
+- **Character view's chat card heads like a quest tracker.** In the
+  style of Cyberpunk 2077's, its top line is the chat's title in yellow
+  capitals, its project small under it, with a dim decoration at the top
+  right (no data). The state word (`WORKING`, `IDLE` and the rest) is
+  gone: the badge left of the title says it, a yellow filled `!` at
+  work, a red empty box when it needs you or is cut off, a green badge
+  with a tick when done, a dim box queued or idle. A todo list shows
+  under the title, one row per todo. The one in progress
+  is yellow with a filled badge and a `!`; a pending one is red with an
+  empty outlined box; a done one is plain green, no badge. All but the
+  green have a dark outline and a faint red glow. Long rows wrap under
+  their text; past seven rows the done ones go first, then the last
+  pending, and `+N more` says how many. A todo that turns done blinks a
+  green bar and badge for 2 s, flickers and settles to green; a new or
+  newly started one slides in from the right, pale, over a quarter
+  second; the whole tracker fades in over half a second. With Windows'
+  animations off it is simply there. Panel view's card keeps its
+  `TASKS` line. The card model gains `Todos`
+  ([Get-ChatOverlayCardModel](src/overlay-data.ps1)), drawn by
+  [card.quest](native/overlay/src/card.rs) and driven by
+  [card.Quest](native/overlay/src/card.rs).
+
+## 0.12.0 — The Windows overlay is the Rust host alone
+
+On Windows the overlay is `chatq-overlay.exe` and nothing else. The
+PowerShell host, the WPF panel, the fuses that fell back to them and the
+switches that chose them are gone; macOS, the console, phone setup and the
+steps are unchanged.
+
+- **Gone: the PowerShell host and the WPF panel.** `chatoverlay -Host` and
+  `-Panel` (PowerShell now says the parameter cannot be found),
+  `CHATQ_RUST_HOST=0`, `CHATQ_RUST_HOST_HANDOVER`, the host fuse, the panel
+  fuse and the shadow collector (`chatq-overlay.exe --shadow`) are removed,
+  with the headless host's code and the WPF panel's tiles, gauges, tray,
+  settings box and hover card. What the console and phone setup draw with
+  stays. `"host": "ps"` and `"shadow"` and `"panel": "ps"` in `config.json`
+  are read as before on macOS and ignored on Windows, where
+  `data/logs/overlay.log` says so once a version.
+- **A host that keeps dying gives up, it does not hand over.** Ending
+  unasked 3 times in 10 minutes under one version, the Rust host logs the
+  time it may start again and starts nothing; so does a native panel that
+  exits 3 times in 10 minutes or will not start. A new shell or VS Code
+  window tries again after the 10 minutes, a new version starts with a clean
+  count, and `chatoverlay` by name always tries (it forgets
+  `data/native/host-starts.json` first). A start that dies before it takes
+  the lock is one line in `overlay.log` and nothing more.
+- **Failing auto-continue looks are said once.** When the act lane's looks
+  fail 3 times in a row the host logs why, shows one balloon and keeps
+  running, as it used to hand over to PowerShell for it.
+- **A zip install or `chatinstall` has no overlay on Windows.** Without a
+  `chatq-overlay.exe` for the version (a zip, a checkout not rebuilt since a
+  version bump, an antivirus that took the exe) nothing is started: one line
+  in `overlay.log` a version and in the shell, the fix beside it, and
+  `Start-ChatOverlayAuto` reports off, not failed. `chatinstall` ends with
+  that line where it applies. The VS Code extension stages the exe first.
+  Auto-continue, live phone alerts and usage heads-ups run in the host, so
+  they go with it.
+- **Updates from older copies keep working.** A running copy's restart
+  text - `Start-ChatOverlayProcess -Wpf`, `Watch-ChatOverlayRustStart
+  -Fallback`, `Start-ChatOverlayHeadlessHost -UiExe`, `Start-ChatOverlayHost`
+  - is accepted and starts the Rust host.
+- **Kept:** the hidden `powershell.exe` that starts the exe and logs its
+  failed start, the Rust host's restart through it, the steps, the
+  console, phone setup and the opt-in checker (`hostCheck`).
+- **Tests.** The PowerShell host and WPF panel checks are deleted with
+  their code; the JSON goldens their oracles wrote stay frozen and the Rust
+  tests still read them. `gate-old` now covers the old launch text above.
+- Leftover `data/native/host-fuse.json` and `panel-fuse.json` can be
+  deleted; nothing reads them.
+
+## 0.11.48 — Swipe a tile away to delete it, and no lock
+
+- **In the Rust host's Panel view, a tile or a Recent line is deleted by
+  swiping it sideways.** Press anywhere on it and drag it to either side:
+  the row slides with the pointer and the space it uncovers stays bare, no
+  tint, no stripes. Past 45% of the panel's width that space is a solid red
+  block, Gmail's delete red, with a black bin on it; drag back under it
+  and the block is gone.
+- **Let go past that and the row stays open**, the block and the bin
+  showing, nothing sent yet. The row eases to that distance and holds
+  there (with Windows' animations off it just is); no frames run while it
+  waits. **Click the block and the chat is deleted for good**, as the bin
+  did, with no second ask: the click is the decision. The row slides out
+  and the rows below close up; with animations off it just goes. Let go
+  short of the red and the row springs back, nothing sent.
+- **An open row is shut by anything else.** A press anywhere off the block
+  (another row, the open row's own tile, the frame, empty space, the bar), Esc, a
+  swipe begun on another row, or a snapshot that makes the chat busy
+  shuts it: it springs back, nothing sent, and only one row is open at a
+  time. A snapshot that no longer has the chat just lets it go. A press on
+  the open row itself shuts it, and a drag from there swipes it afresh
+  from rest. A release off the block is no click.
+- **A chat that cannot be deleted never dies.** One at work, waiting on you,
+  open in a terminal or with a queued prompt running resists like a rubber
+  band, stops short of the kill distance, says a muted IN USE, and a release
+  deletes nothing.
+- **A press that moves mostly up or down still moves the panel**, and one
+  that does not move still opens the chat.
+- **The swipe starts at once**, the chip up or not, as a dial's drag does:
+  each row takes the press itself.
+- **A row slid aside stays in its slot.** The row and the ground it
+  uncovers are cut to the row's place in the stack, so it never lies over
+  the frame's edge or runs off the window.
+- **The bin is one size** whichever way the row went and however far. It
+  is black, stands at the slot's own edge and shows as far as the row has
+  uncovered it - cut, never shrunk.
+- **A deleted row stays gone.** It no longer comes back for the seconds
+  the host takes to delete the chat: the panel keeps it off the list until
+  the host's list drops it too (or 45 s pass, for a delete the host did
+  not carry out). The host also runs a delete ahead of its own waiting
+  background steps, so the chat goes sooner - before, it could wait 10 s
+  or more behind them.
+- **The chip's `click again` and `opening 3s` show again**, on the tile's
+  right part where the bin's room was (past the ring's end on a short Recent
+  line); a press on them is a press on the ring.
+- **The bin is gone from the tile panel**, and with it the two-click
+  `sure?`, the bin's tooltip and its column: every tile and Recent
+  line is 26 units narrower, as is the panel (136 wide). The chip shows the
+  ring, its word chips and what it says. The PowerShell panel keeps its bin.
+- **The drive file gains `row-press <key>`, `row-move <key> <dx> <dy>`,
+  `row-release` and `bin-click`**, for a test to swipe a row and click its
+  red block without the real mouse: on the row's own hit, and on the
+  block's own (`bin:<key>`).
+- **Any dial takes the drag, anywhere on its disc.** Idle or at work, with
+  its chip up or not, and on a row with nothing to open: press the dial
+  and move it. The press is the dial's own, not the chip's ring's, so no
+  rest delay is waited for. A press that does not move is a click, as it
+  was: the ring opens the chat once it shows. The hover chip over a dial
+  has no bin now, in Character view the drag being the delete.
+- **The drive file gains `dial-press <x> <y>`, `dial-move <x> <y>` and
+  `dial-release`**, for a test to drag a dial without the real mouse: the
+  points are stage units from the panel's corner, and the lines go the
+  way of a real press, frame and release.
+- **The native panel has no lock.** It always takes the mouse: a press on
+  a tile or a Recent line opens it or swipes it away, a press on its frame,
+  bar or empty space drags it, and in Character view the character and the
+  dials always move and drag. Nothing clicks through it any more, so what
+  is under it is reached by moving or hiding it. The red (blue in the light
+  look) edge, the open padlock marker at the foot with its UNLOCKED card, the
+  2 minute relock and Character view's own lock are gone, and the panel is a
+  row shorter without the marker. A `locked` or `stageLocked` in
+  `data/overlay-state.json` is ignored and dropped at the next save.
+  The WPF panel keeps its lock, and `chatoverlay -Lock` and `-Unlock` set
+  that alone: with the overlay not running they no longer write a
+  `stageLocked`.
+- **The menu drops the items the panel already has.** The tray's and the
+  panel's menu lose **Lock** (Unlock to move), **Hide** (Show),
+  **Collapse to one line** (Expand), **Refresh usage**, **Move to top
+  right** and **Quit**: hide, collapse and quit are the bar's buttons, a
+  click on a gauge refreshes the usage, the tray's click and
+  Ctrl+Alt+Shift+O hide and show the panel, and the hotkey, which unlocked
+  the panel before, now just hides and shows it. A panel hidden by the
+  hotkey or the tray is shown again the same way before its × quits it.
+  Nothing in the native panel moves it back to the top right now:
+  `chatoverlay -Reset` still does.
+- **A locked tile panel's swipe waits for the chip** is closed in
+  FUTURE_WORK.md: with no lock, no press waits for the chip's ring.
+  The golden `panel-light-unlocked-said` is `panel-light-said`, and the two
+  menu goldens lose the six items.
+
+## 0.11.47 — The panel lets the character's art go
+
+The overlay window holds less memory; nothing on screen changes.
+
+- **Panel view holds no character art.** The mood's decoded sheet - 7.5
+  MiB for the built-in skin, up to 22.5 MiB for a large pack - was held
+  for the window's whole life, though only Character view draws it. It is
+  now decoded at Character view's first draw and let go on the switch to
+  Panel view. Measured off screen, the window's own part in Panel view
+  went from 11.2 to 3.7 MB.
+- **Putting on a skin no longer decodes a whole sheet for its tray
+  icon.** A pack with no `stills/tray.png` has its icon cut from a mood
+  sheet; only the rows down to the crop's foot are read now, so the spike
+  of decoding the whole sheet (up to 20 MiB) is gone. The icon is the same
+  to the byte.
+- **The last snapshot is held once**, not copied, and the skin's lines
+  are shared, not copied at each lookup: a few hundred KB less.
+- A pack's sheet that does not decode is now logged at its first draw in
+  Character view, not when the skin or face changes; the default's sheet
+  plays in its place as before.
+
+## 0.11.46 — The shadow works out the reset ask
+
+S6d of the native collector's plan.
+
+- **Which chats the reset ask offers is worked out in Rust.** The shadow
+  now builds `header.ask` itself - the limit's chats five minutes after
+  their reset and under 12 hours old, and a window's restart rows - held
+  against the answered marks (read at the look), the queue's busy chats
+  and the chats open in a terminal, and nothing while Claude is at its
+  limit. It was taken from PowerShell until now.
+- **The ask's wait is counted by the pass.** Only the `deadline` of an
+  ask that PowerShell also has, with the same chats, stays PowerShell's.
+- **With the crash continue on**, an ask of PowerShell's with a restart in
+  it is taken whole, as the restart rows are PowerShell's then
+  (FUTURE_WORK.md "The reset ask's edges").
+- **Twenty chats cut off at once sort as pwsh 7 sorts them.** The cut-off
+  rows' order of ties past 16 rows now follows pwsh 7's introsort, which is
+  stable only up to 16 (the vector found it).
+- **PowerShell's `reset ask:` error is no longer taken** while the pass
+  makes the look.
+- **New vector `overlay-resetask`** (84 cases) pins the ask, its cause,
+  title and terminal words and the deadline rule, compared under 5.1 and 7.
+
+## 0.11.45 — The shadow works out the auto states
+
+S6c of the native collector's plan.
+
+- **What auto-continue does with each cut-off is worked out in Rust.**
+  The shadow now gives every cut-off row its `auto` state (ready, off,
+  never, terminal, stopped, declined, failed, far, late, restart, and the
+  armed, due or running of a queued continue) and the header's
+  `counts.auto`, from `config.json`, `data/auto-continue.json` and the
+  markers in `data/auto`, and holds them against PowerShell's. They were
+  taken from PowerShell until now.
+- **Markers are read once a look**, as PowerShell does; the states move
+  on the pass in between. A marker over 8 days old is not read (the shadow
+  deletes nothing).
+- **A setting it cannot cast** (a streak that is not a number) gives
+  `auto-continue: ...` in `header.error`, and the states stay as they were.
+- **The Rust host keeps PowerShell's states**, so the checker masks
+  `rows[*].auto` and `counts.auto` (FUTURE_WORK.md "The auto states'
+  edges").
+- **New vector `overlay-autostates`** (251 cases) pins the state, the
+  config read, the held tests, the time words, the markers and the pass,
+  compared under 5.1 and 7.
+
+## 0.11.44 — The Rust host by default
+
+The Rust host's plan, 3.3.
+
+- **The Rust host is the default on Windows.** With the native panel,
+  `chatq-overlay.exe` is the overlay's host unless you say otherwise
+  (`"host": "ps"`, `chatoverlay -Host ps`). PowerShell's host is
+  deprecated there and kept as the fallback: when the Rust host has
+  ended unasked 3 times in 10 minutes or died before it took the lock
+  (until the next version, or `chatoverlay -Host rust`; the hand-over is
+  marked with the version), with `CHATQ_RUST_HOST=0`, where the panel is
+  the WPF one or no `chatq-overlay.exe` is staged for the version (a zip
+  install has none), and on macOS, which stays as it was. The days of
+  real use were waived for this. A word `overlay.host` does not know now
+  reads as the default.
+- **`chatoverlay -Host` restarts the overlay that is running the wrong
+  host.** It used to restart only if config.json said something else, so
+  `chatoverlay -Host rust` on a running PowerShell host that config.json
+  already called `rust` only reloaded it. It now finds the host running
+  (from `overlay.pid`) and restarts unless it is the one you chose, and
+  says why a shell would start PowerShell's instead (the panel `ps`, no
+  exe for the version, `CHATQ_RUST_HOST=0` in the shell). `-Host rust`
+  onto a running PowerShell host now stops it and starts the Rust host
+  from your shell, since its own restart would choose in its own
+  environment; it also clears the starts the fuse counted, blown or not.
+- **The hand-over's opt-out is its version's.** Where the Rust host's
+  fuse cannot be written it handed over to PowerShell's host with
+  `CHATQ_RUST_HOST=0`, which that host and everything it started
+  inherited, so no restart of it ever picked Rust again, version bumps
+  included. It is now `CHATQ_RUST_HOST_HANDOVER=<version>`: PowerShell's
+  host for that version only, and a new version tries the Rust host
+  again. `CHATQ_RUST_HOST=0` set by you in a shell stays the opt-out.
+- **A Rust host that dies before it takes the lock falls back.** An exe
+  that was there but died early (a missing DLL, an early panic, a
+  quarantine) left nothing running, and every later start repeated it.
+  Every start of the Rust host is now watched for 15 s, in a hidden
+  PowerShell (never in your shell): one that exits before it holds
+  `overlay.lock`, will not start or takes none blows the host's fuse for
+  the version and PowerShell's host starts. The hand-over from an update
+  gives way only once the Rust host holds the lock or exits 0; it watches
+  in place for up to 15 s before it takes its own lock, and the kill of a
+  hung exe is best-effort.
+- **An update starts the Rust host at its first restart.** The restart
+  onto new code was chosen by the old code, so a change of host in a new
+  version came a restart late. The new PowerShell host now asks its own
+  code's choice before it starts, and hands over to the Rust host.
+- **The Rust host's memory restart has its own limit.** 100 MB, since
+  `overlay.restartMB`'s 300 was set on PowerShell's figure and a host of
+  about 10 MB never reached it. `overlay.restartMB` in config.json
+  overrides it (0 for never), and the log line says which limit it was,
+  no longer "after the heap compacted".
+- **A memory restart held by something under way is taken after 10
+  minutes**, in both hosts, as the update's is: a pointer left on the
+  panel no longer keeps a grown host from restarting, and the log says
+  once that it waits. A hover card can vanish once then.
+- **A PowerShell host chosen by name says once a version that it is
+  deprecated**, in `overlay.log`, no balloon.
+
+## 0.11.43 — The shadow reads the restart rows itself
+
+S6b of the native collector's plan.
+
+- **The chats a reload cut off are found in Rust.** The Rust host reads
+  PowerShell's host-work notes (`data/host-work`), works out which chats
+  a VS Code reload, a crash or an out-of-memory cut off, and shows them
+  as PowerShell did: the last message owing an answer, or background
+  work (a workflow, an agent) that never saw its end. The cause comes
+  from VS Code's own log, as before. The shadow holds these rows against
+  PowerShell's as it does the limit rows.
+- **Only while the crash continue is off.** With `autoContinueCrash` on,
+  the continue runs in PowerShell with a scan of its own, so the restart
+  rows stay PowerShell's, as they were.
+- **A restart's look is two seconds on while a window waits for VS
+  Code's log**, as PowerShell's is.
+- **What the Rust look leaves** (FUTURE_WORK.md "The restart rows'
+  edges"): the continue itself, a pass that runs `-Once`, and a UTF-16
+  mark in VS Code's log. Where PowerShell's host does not prune its
+  notes (no ask), a row's time can drift in Rust.
+- **New vector `overlay-restartrows`** (194 cases) pins the rows pass by
+  pass, the cause from the log, the last message's tests and the ask's
+  marks, compared under 5.1 and 7. `overlay-cutoff` gains the last
+  message's kind, text and stop reason.
+
+## 0.11.42 — Drag a dial away to flatline its chat, and /clear's empty session is not listed
+
+- **Drag a dial away from its seat to delete its chat, the way the game
+  kills you.** In the Rust host's Character view, press a dial and move it
+  past a few pixels: a ghost of the dial follows the pointer and takes
+  hits. The farther from its seat, the redder it goes, and red scanlines
+  tear it sideways, more and wider. Past a quarter of the stage's width
+  its plate falls to black with only a red arc of its rim lit and a red
+  ATTENTION triangle by it; move back under that and it recovers.
+- **Let go past that and the chat is deleted for good**, as the bin does in
+  Panel view, with no second ask: the release is the decision. The dial's
+  seat plays a short Flatlined card, about three dials wide and held inside
+  the window: ATTENTION, CRITICAL SYSTEM FAILURE on
+  a red plate, then the skull, FATAL BRAIN DAMAGE and FLATLINED in its box,
+  in about a second, taken from the game's own clip. With Windows'
+  animations off the dial just goes. It works with the HUD locked or
+  unlocked. Let go short of the kill distance, or press Esc, and the dial
+  goes back and nothing is sent.
+- **A chat the bin refuses never dies.** One at work, waiting on you, open
+  in a terminal, or with a queued prompt running takes damage only up to a
+  point, never falls to black, says a muted IN USE where ATTENTION would
+  be, and a release deletes nothing. A chat that is gone while you drag
+  counts as refused. A press on a tag, and any press in Panel view, still
+  move the panel, as before.
+- **A dial takes the drag only from its chip's ring.** The ring shows
+  after the rest delay, as for a click to open, and a press before it
+  appears, or on a row with nothing to open, drags nothing.
+- **The speech box reads larger, on a darker plate.** Its text is the
+  game's larger subtitle size (a 17-unit line), over a black plate at 70 %,
+  so it reads over any scene. A skin worn anew also takes the old skin's
+  line off the box.
+- **A /clear's empty session is not listed.** Claude Code's `/clear`
+  starts a new session that holds only the command and its noise. The
+  overlay no longer lists that session as a chat; the chat from before
+  the clear stays listed, and the new session appears once you type a
+  real prompt in it. A session with a custom or AI title still lists.
+  The Rust collector and the PowerShell host agree on it.
+
+
+## 0.11.41 — The HUD's bar is one strip, usage is bulging arcs, the HUD moves, a click on a gauge asks
+
+- **A click on a usage gauge asks for usage now.** In the Rust host,
+  press and let go on a gauge, without moving, and it sends `refresh`;
+  drag from it and the panel moves, as before. It works in Character
+  view locked or not, and in Panel view unlocked. Panel view locked is
+  click-through, so the menu's Refresh usage is the way there.
+- **The refresh button is gone from the bar.** The Rust host's controls
+  bar and the HUD's bar have five buttons now: fold, gear, min, max and
+  close. The tray menu's Refresh usage stays.
+- **The gauges pulse while an ask is out.** Their fill fades between
+  about half and full over 900 ms, and stands still when the answer is
+  in. A gauge's hover says it is a click to ask.
+- **The bar is one strip.** Character view's buttons no longer sit on
+  separate plates a gap apart: one chamfered strip holds them edge to
+  edge, with a thin divider between neighbours.
+- **Usage is segmented, bulging arcs.** They replace the cradle of
+  arcs: one arc per usage window under the character, its middle the
+  highest, lit from the left to its percent, a tick across it at how far
+  through the window it is. No letters and no percent beside them: the
+  hover card names the provider and its windows.
+- **Faint decoration under the stage.** A tick ruler down the right
+  edge, a barcode and two serial lines at the top left, and the version
+  at the bottom right, in a dim red over a dark halo, so a light
+  wallpaper shows them too, and under every mark. None of it is data,
+  and none of it takes a click.
+- **The HUD boots in.** On start, on show and on unfold the red marks
+  flicker in first, the cyan and gold ones 50 ms later, and the
+  character fades in over 450 ms; the bar comes in with the red.
+- **Labels decode.** A tag, a dial's number or a usage label that is
+  new or changed runs through random glyphs for about 200 ms, then
+  settles. ASK 2 becoming ASK 3 decodes.
+- **A glitch on a finished job or a new alert.** The character splits
+  into a red and a cyan copy a few units apart for 100 ms. A new tag
+  counts; AUTO and MUTE, the menu's toggles, never do.
+- **The hover card in the HUD's style.** In Character view the card
+  has cut corners and the HUD's colours on either theme, an icon box
+  and a label in the item's colour, and a draining bar for an ask's
+  timer, a usage window or a cut-off's countdown. It slides in from the
+  left over 150 ms. Panel view's card is unchanged.
+- **The motion plays only with Windows' animations on.** With them off,
+  the boot-in, decode, glitch and slide show their last frame at once.
+- **The HUD keeps to red at rest.** Idle dials and the unlit usage
+  segments are a dim red now, so the HUD is red at rest, cyan live and
+  yellow on a warning.
+
+## 0.11.40 — The shadow reads the cut-off chats itself
+
+S6a of the native collector's plan.
+
+- **The cut-off look runs in Rust.** The Rust host now finds the chats a
+  limit cut off, reads their last turn and title, and keeps those under
+  12 hours old, where it ran a PowerShell step for it before. A look is
+  still about a minute apart, and again when a limit comes or goes.
+- **A restart's rows stay PowerShell's.** Rows for a chat that stopped
+  by an out-of-memory, a crash or a restart come from PowerShell, as do
+  the auto continue and the reset ask.
+- **The shadow checks the ask too.** It compares the reset ask's chats
+  with PowerShell's and logs each one that is new or gone. An ask that
+  has restarted is left unchecked.
+- **A restart's rows show only while the cut-off setting is on**, as
+  PowerShell's list does.
+- **New vector `overlay-cutoff`** pins the last turn, the title, the
+  scan, the key and the 12 hour filter, compared under 5.1 and 7.
+
+## 0.11.39 — The Rust host, opt-in
+
+H7 of the Rust host's plan.
+
+- **No environment variable to turn the Rust host on.** `chatoverlay
+  -Host rust` is enough; `CHATQ_RUST_HOST=0` stays as the opt-out, and
+  is what the handover sets where the fuse cannot be written. It is
+  still off by default.
+- **`overlay.hostCheck` and `chatoverlay -HostCheck on|off`.** On a check
+  day the Rust host starts a PowerShell checker beside it (about 130 MB
+  while it runs). The checker reads nothing it could change and writes
+  its look to `data/native/overlay-ps-check.json`; the host compares it
+  with its own and logs differences that held to
+  `data/logs/overlay-check.log`. A checker that keeps ending is left off
+  for the run, with no fuse.
+- **An hourly `sample` line in overlay.log** on the Rust host: private
+  bytes, threads and the act and read lane step times.
+
+## 0.11.38 — A held restart onto new code ends in 10 minutes
+
+- **The Rust host no longer waits for ever to restart on new code.** It
+  waited while the panel said something was under way, and on 10-30 one
+  hold lasted 22 hours: every step refused the new version, so no alert
+  or look ran. Now it says once that the restart is held, takes it
+  anyway after 10 minutes, and looks at the code at once when a step
+  refuses its version. The headless PowerShell host has the same bound.
+- **A panel that hides or can't read the cursor counts the pointer as
+  gone,** so a locked PC no longer keeps it "under way".
+- **The panel logs each change of its under-way answer,** naming what
+  is on, so a long hold can be traced.
+
+## 0.11.36 — The Rust host's alerts, cut-off look and reset ask
+
+H5 of the Rust host's plan. Still behind `CHATQ_RUST_HOST=1`.
+
+- **Phone alerts are sent again on the Rust host.** From 0.11.32 to
+  0.11.35 it only logged each live alert `due - not sent`; now it sends
+  them, and the usage heads-ups and the held kick too.
+- **The Rust host acts on cut-off chats itself.** The cut-off look, auto
+  continue and the reset ask run as PowerShell steps, a look about
+  every minute and again when a limit comes or goes; the ask answers
+  from the panel, the console and the phone.
+- **A look that keeps failing hands over.** After 3 failed looks in a
+  row, or 5 minutes without a good one, the PowerShell host takes over.
+- **Two new vectors, `overlay-lookcadence` and `overlay-asktimer`,** pin
+  when the look runs and the ask's timer, compared under 5.1 and 7.
+
+## 0.11.35 — One menu for both views, no quiet hours for the character
+
+- **One menu, everywhere.** The native panel's menu now holds
+  everything its bar and settings box did. It opens from the tray icon,
+  from a right click on the panel, its bar or the character, and from
+  the gear, in both views (Panel view had no right click before, and
+  its gear opened a settings box). It is regrouped:
+  - the ask, then Open console and Phone alerts;
+  - the two views, Skin and Record mode;
+  - Settings;
+  - the window's own items;
+  - the version, then Quit.
+- **Settings in the menu.** The native panel's settings box is gone
+  (the WPF panel keeps its own). Theme, Recent chats and Cut-off chats
+  work as its chips did, and the panel's opacity and rows come in steps
+  (its sliders are gone). The crash item moved under Settings. Cut-off chats replaces
+  the old Auto-continue tick, which offered only on or ask, never Leave.
+- **A bar in Character view.** The bar's six buttons stand along the
+  HUD's top, always, drawn in the HUD's style (cut corners, red edges,
+  cyan glyphs), with the dials moved down 12 units clear of it. Its
+  gear opens the menu, as in Panel view.
+- **The overlay's own menu.** The menu is drawn by the overlay, not by
+  Windows, in the look the settings box had: the panel's frame and
+  edge lines, a lit row under the pointer, dots and ticks in the accent
+  colour, greyed items dim, and a `›` on the ones that open a submenu.
+  It is dark in Character view and follows the panel's theme in Panel
+  view. Items show their tips; Up, Down, Left, Right, Enter and Esc
+  work it, and a click elsewhere, losing focus or the panel hiding
+  closes it. It flips to stay on screen.
+- **The panel no longer freezes under the menu.** Windows' menu ran its
+  own loop, which stopped the character, the card and the timers while
+  it was open. The overlay's menu is a few windows of its own, so they
+  go on. The drive file gains `menu-open`, `menu-key <k>` and
+  `menu-close`.
+- **Record mode.** In a checkout, the menu's Record mode closes this
+  overlay and plays `design/skippy/demo/promo.json` with
+  `tools/overlay_scene.py` in a console of its own. Ctrl+C there ends
+  it.
+- **A hover always gets a line.** Resting the pointer 1.5 s on the
+  character has him say something, every time, 15 s apart at most
+  (it was once in 10 minutes, and the hour's caps, the dice and three
+  quick clicks' sulk could drop it too). Only mute, or an urgent line
+  or a host's message on show, holds it back.
+- **An urgent line stays while its state does.** A line about a chat
+  waiting for you (input, a permission, a question) or the reload ask
+  stays up until the chat moves on, as his face already did, instead
+  of going after 30 s. A click still dismisses it; its "still waiting"
+  repeat is dropped once you answer.
+- **A looped face plays its whole clip.** A mood sheet may now hold
+  24 MiB decoded (was 8 MiB), so a 6 s loop fits at 12 fps: about 70
+  frames instead of a 25-frame cut that jumped back every 2 s. One
+  sheet is held at a time, so the overlay grows by at most 24 MiB while
+  such a face shows. Packs are rebuilt by their own tools; the default
+  skin is unchanged.
+- **Character view's usage is a cradle of arcs.** The thin 2-unit bars
+  under the character are now segmented arcs curving under it, one per
+  usage window, 3 units thick on a dark teal track that shows on the
+  halo, with the provider's letters and its fuller window's percent at
+  the left ends. The dials read better too: brighter unlit segments, a
+  thicker band, a thin rim in the dial's colour and a lighter idle
+  ring.
+
+- **The character talks at any hour.** From 23:00 to 08:00 the line
+  picker let only urgent (P1) lines through, so pokes, finished chats
+  and small talk went unsaid at night. The rule came from the
+  prototype, not from a request, and the lines make no sound; it is
+  gone. Mute and the chatter level still quiet him.
+- **The morning line still waits for 08:00**: the first look of a day
+  from then on.
+- The phone's quiet hours (`chatnotify -QuietHours`) are unchanged.
+
+## 0.11.34 — One firewall rule for every release
+
+W3 of the watcher plan. Where outbound is blocked by default, as on
+this PC, each release's `bin/<version>/` chatqd needed an allow of its
+own, and until it was given every reply window fell to the PowerShell
+watcher.
+
+- **chatqd has a path that does not change**:
+  `native/stage.ps1` also stages it at
+  `bin/current/x86_64-pc-windows-msvc/chatqd.exe`. Allow that path
+  outbound once and the rule lasts across releases; the script says so
+  when it stages a new chatqd.
+- **The watcher takes that copy first** when its `chatqd version` says
+  this version, else `bin/<version>/` as before. A stable copy of
+  another version is passed over quietly: no strike, fuse or alert.
+- **A running watcher never blocks a release.** A stable copy that
+  differs is renamed aside to `chatqd.old-<n>.exe`, which a later run
+  deletes once nothing runs it.
+- **An exe is asked again after a bump**, even unchanged:
+  `verified.json` now records the version each pass was for.
+- Whether the firewall keeps the rule once the file at that path
+  changes is still to be seen on this PC (TESTING.md, Tier 1 W3).
+
+## 0.11.33 — One command stages the native exes
+
+W1 of the watcher plan. On this PC no watcher had run native since
+0.11.11: nothing was staged at the version's path.
+
+- **`native/stage.ps1`** builds chatqd and the native panel (release,
+  `--locked`, the msvc target), writes the panel's notices with
+  cargo-about and copies all three into
+  `bin/<version>/x86_64-pc-windows-msvc/`, where the watcher and the
+  overlay look for them. `-NoBuild` stages a build already made,
+  `-NoOverlay` chatqd alone.
+- **Nothing half staged.** Each exe is asked its version first; one
+  that does not say the loader's version stops the script with nothing
+  copied. A file with the same bytes is left as it is, and one in use
+  that differs stops it before anything is copied.
+- **Each version's path needs its own firewall allow** where outbound is
+  blocked by default; without it a reply window falls to the PowerShell
+  watcher (TESTING.md S59 step 8).
+
+## 0.11.32 — The Rust host's watcher word, host-work notes and alerts
+
+H4 of the Rust host's plan. Still behind `CHATQ_RUST_HOST=1`.
+
+- **The watcher's word comes from the host itself**, asked every 10 s
+  as the PowerShell host asks it; the shadow compares it too.
+- **Jobs answered in the chat are closed** `skipped` by a new
+  `answered-jobs` step on the act lane. One a step did not close is
+  tried again a minute on, not every pass.
+- **The host-work notes are written** to `data/host-work`, as the
+  PowerShell host writes them, so a VS Code window that goes down still
+  leaves its cut-offs. The shadow writes its own to
+  `data/native/host-work-shadow` and logs where they differ.
+- **Live alerts are found but not sent**: each is logged `due - not
+  sent`; the send, usage alerts and the held kick come with H5. Two new
+  vectors, `overlay-hostwork` and `overlay-livealerts`, pin the notes
+  and the alerts under 5.1 and 7.
+
+## 0.11.31 — The Rust host's usage
+
+H6 of the Rust host's plan. Still behind `CHATQ_RUST_HOST=1`.
+
+- **The Rust host asks for usage itself.** Claude, Codex and Copilot are
+  asked when PowerShell would ask them: more often while a chat is
+  busy, at once 5 s after a window resets, never inside a backoff or a
+  server's hold, whose `retry HH:mm` shows on the line. Each ask is a
+  usage step on a lane of its own, so a slow fetch never holds an act or
+  a card; the shadow and the Mac never ask.
+- **`refresh`** asks each provider again, none more than once in 20 s,
+  with its note on the line and the panel's spinner while an ask is
+  out. The
+  figures and a server's hold are read back from `overlay.json` when the
+  host starts.
+- **A killed step takes its children with it**: every step runs in a
+  job object, so a kill also ends its `gh` and `codex app-server`.
+- **A new vector, `overlay-usage-live`,** pins when each provider is
+  asked, compared under 5.1 and 7. Usage alerts and the held kick come
+  with H5.
+
+## 0.11.30 — Steps that stop starting
+
+From the H1 gate day: on 2026-10-28, once Windows ran out of memory,
+every new PowerShell on the PC stalled 10-15 minutes at startup until
+Windows was restarted, and the shadow's looks were killed at 30 s, 341
+in a row. The step runner was fine; this release notices such a night.
+
+- **Three kills in a row are a stall.** The shadow logs once
+  `steps: PowerShell is not starting (...) - Windows may need a
+  restart`, looks every 10 minutes instead of every minute meanwhile,
+  and logs `steps: PowerShell starts again` once a step ends by itself.
+- **The Rust host says it** (behind `CHATQ_RUST_HOST=1`): the click
+  whose step turned the stall shows a balloon, "PowerShell is not
+  starting - <verb> was not done. Windows may need a restart."; the acts
+  and cards waiting behind it are dropped and logged instead of taking
+  30 s each, and a new click still gets one try, so recovery is seen.
+- **A killed step's line** now ends `exit=<code> cpuMs=<ms>`: a stalled
+  step shows next to no CPU.
+- **The gate day's numbers** (pwsh 7, 761 looks): a median look of
+  821 ms and a peak of 116 MB, inside the 1.5 s and 120 MB gate, with no
+  compile.
+
+## 0.11.29 — The Rust host's console
+
+H3e of the Rust host's plan, which ends H3. Still behind
+`CHATQ_RUST_HOST=1`.
+
+- **The console opens under the Rust host.** `console` and
+  `console-key` start the console in a process of its own, on the
+  command the PowerShell host uses, or tell a running one `show` or
+  `key` on its stdin. The console may come to the front (its pid alone
+  is allowed; never under `CHATQ_NOFRONT`), and the host reads
+  `console-ui.json` back each pass: its news becomes the host's, the
+  panel hides while it shows, and its work in progress holds off a
+  restart as the panel's does. A console that ends while a show was
+  owed is started once more.
+- **The panel's verbs reach the console.** `close`, `console-back`,
+  `lock`, `unlock`, `toggle`, `hide`, `collapse`, `expand` and `reset`
+  tell it `back`; `hotkey` does while it shows; `reload` and a settings
+  change tell it `reload`.
+- **`-Open console` starts the Rust host** with `--open console`
+  instead of keeping PowerShell. The panel stays hidden until the
+  console first answers, or 20 s with no word. An open not yet carried
+  out is handed on across restarts and fuses.
+- **`phone`** starts the phone setup dialog on Windows PowerShell's
+  command, however the host was started.
+- **A new vector, `overlay-launch`,** pins the console's and the phone
+  setup's commands, compared under 5.1 and 7.
+- **Not yet checked by hand:** that the console comes to the front from
+  the Rust host (TESTING.md's Tier 1 check).
+
+## 0.11.28 — The Rust host acts through steps
+
+H3d of the Rust host's plan, still behind `CHATQ_RUST_HOST=1`.
+
+- **The panel's clicks work under the Rust host.** `delete`,
+  `reload-answer`, `config <k> <v>` (the settings box), `auto-on`,
+  `auto-ask`, `auto-off`, `crash-on`, `crash-off` and `card` are each
+  carried out by a one-shot `src/overlay-step.ps1` step that calls the
+  PowerShell host's own functions, and what it says comes back as the
+  host's balloon and said event. A config or crash step has the host
+  read `config.json` again, and a switch set brings the reload
+  PowerShell's does.
+- **Two lanes.** Acting steps run one at a time, in order; a card has a
+  lane of its own, where a newer card replaces one not yet started. A
+  step that fails, hangs (killed at 30 s) or answers what cannot be read
+  is logged once in 5 minutes in its verb's words and never holds the
+  pass. A step runs a pass after its verb, so its news comes about a
+  second later than PowerShell's.
+- **The auto-continue notice** for a switch set during a close by hand
+  is said once the close is taken back.
+- **The PowerShell host is unchanged:** its crash verb moved into
+  `Set-ChatOverlayCrashVerb`, which both hosts call.
+- **A new test section, `overlay-act`,** runs the new ops under 5.1 and
+  7 and compares their answers.
+
+## 0.11.27 — The Rust host closes by hand
+
+H3c of the Rust host's plan, still behind `CHATQ_RUST_HOST=1`.
+
+- **The close button works under the Rust host.** A close is said
+  ("Closed until you next sign in. Type chatoverlay to bring it back
+  sooner."), held 4 s, and taken back by `show`, the hotkey or the
+  console in that time, as PowerShell's is. While it is on its way the
+  snapshot says `ui.closing`, other verbs wait, balloons are held, and a
+  restart, a new version or the memory restart becomes a stop.
+- **Closed until the next sign-in.** A close, and any stop, marks
+  `closedSignIn` in `overlay-state.json` once the panel is gone; a host
+  started in the same sign-in stays closed, and a start in a new one
+  clears the mark, keeping the panel's place. The sign-in time is read
+  natively, from this session's earliest `sihost`, else `explorer`.
+- **The first pass** acts only on stop, restart and close, as
+  PowerShell's first pass does.
+- **Passes that keep failing while closing** end the host as the close,
+  kept, rather than starting it again.
+- **A vector, `overlay-closed.json`,** written from PowerShell under 5.1
+  and 7, pins the sign-in check and the mark.
+
+## 0.11.26 — The Rust host's events and balloons
+
+H3b of the Rust host's plan, still behind `CHATQ_RUST_HOST=1`.
+
+- **Events, as PowerShell keeps them.** The host makes the panel's
+  events (ids `<start ms>-<n>`, kinds balloon and said, text cut at 250
+  characters), saves them to `overlay-events.json`, reads them back at
+  start, and drops one once the panel has seen it or after 10 minutes.
+- **`opened` is taken.** A click that opens a chat gets PowerShell's
+  balloon and says (the chat raised, or why not), and clears its unread
+  mark.
+- **The memory and leak balloons** are said from each pass's news, with
+  PowerShell's 15- and 30-minute holds.
+- **The memory restart.** Past an hour, the host restarts itself when
+  its private memory is over `overlay.restartMB`, looked at 3 minutes in
+  and every 5 after. Its figure is the process's private memory as is;
+  PowerShell's is taken after a heap compaction, so the default 300 MB
+  may not be reached (FUTURE_WORK.md).
+- **The version check waits.** A new version on disk must hold 5 s
+  before the host restarts on it, and neither the check nor the memory
+  restart runs while the panel says something is under way.
+- **Two vectors,** `overlay-hostevents.json` and `overlay-says.json`,
+  written from PowerShell under 5.1 and 7, pin the events file, the
+  memory balloon and `opened`'s says.
+
+## 0.11.25 — The Rust host reads its verbs
+
+H3a of the Rust host's plan, still behind `CHATQ_RUST_HOST=1`, and a
+dependency's advisory fixed.
+
+- **The Rust host reads `overlay-cmd` as PowerShell does.** Each line's
+  stamp, verb and words are read by PowerShell's rules: a verb in any
+  case, only the words a verb takes, a line over 5 minutes old dropped.
+  `stop`, `restart` and `reload` are taken, `reload` reading
+  `config.json` again. The panel's verbs (lock, unlock, show, hide,
+  collapse, expand, reset, disguise and the like) and `hotkey` now reach
+  the panel in the snapshot's `commands`, kept until the panel says
+  they are done or 5 minutes pass. So the tray's Lock, `-Lock`/`-Unlock`
+  and the hotkey work under the Rust host. The verbs it acts on itself
+  (the switches, the ask, close, phone, the console and the panel's
+  clicks) are still logged once in 5 minutes as not taken yet.
+- **A vector, `native/vectors/overlay-verbs.json`,** written from
+  PowerShell under 5.1 and 7, pins the lines, each verb's words and a
+  pass's `commands`.
+- **pulldown-cmark 0.13.5.** The panel's Markdown parser, which Slint
+  brings in, is updated past RUSTSEC-2026-0414; 0.11.23's publish
+  stopped at that advisory.
+
+## 0.11.24 — A scripted scene
+
+A director can play a scene on the native panel for a demo recording:
+the character says what a script gives it, with its own replies and
+mood, and the script hears which reply was picked.
+
+- **A scripted scene for a demo recording.** With
+  `CHATQ_PANEL_SCENE=<file>` set where the native panel starts, a
+  director can put words in the character's box and hold its mood, in
+  Character view. The panel takes the file every 120 ms (renamed, read,
+  deleted, as the host takes `overlay-cmd`) and acts on each line once;
+  a line it cannot read is logged in its data folder's
+  `logs/overlay-panel.log` (the director's: `data/scene/<name>/logs/`)
+  as `ui scene: <why>; skipped` and the rest still run. Without the
+  variable nothing changes. The lines:
+  `say {"name","text","replies":[{"id","label","primary"}],"mood"}`
+  (up to 4 replies; each `\n` in `text` is a turn, timed like a skin
+  line, the last one staying up), `mood <name> [ms]` (held for `ms`, or
+  until the next mood; `mood -` lets it go) and `clear`.
+- **A pick is written back.** A click on reply `i` appends
+  `scene <id>` to `data/overlay-cmd` and ends the box; a click on the
+  last turn of a box with no replies appends `scene click` and leaves
+  it up. Other lines of that file (a card's, say) are not the scene's.
+- **Quiet under a scene.** While the variable is set the skin's line
+  events, the clock's lines and the poke and drag lines are off, so
+  only the script speaks; the host's said and the ask still show when
+  no scene box is up. The pointer, tray and hotkeys work as usual.
+- **A line with no name draws no name.** A speech box line whose voice
+  is empty now has no label and no gap, rather than a bare `:`.
+- **`tools/overlay_scene.py`, the director.** It plays a scene JSON
+  file (the skin, the view, the place, the starting chats and usage,
+  and steps with `at`/`after`, chat and usage changes, `say`, `mood`,
+  `clear`, `wait` for a pick and a `branch` per reply) in a private
+  data folder under `data/scene/<name>/`, feeding `overlay.json` every
+  second and reading the picks. It will not start while the real
+  overlay runs. `--check` validates the file and stops; `--from <step>`
+  starts mid-scene; `--exe <path>` picks the overlay build; `--force`
+  starts though another overlay runs; `--selftest` plays hidden, with
+  every wait cut short, and passes if the scene reaches its end. The
+  scene's clock starts once the overlay is up. An overlay that does not
+  take a scene file in 5 s (a build before 0.11.24) is an error, not a
+  hang. `tools/scenes/example.json` is a sample.
+- **The drive verb `say-pick <i>`** picks reply `i` of the box up as a
+  click would, for tests and the director's `--selftest`.
+
+## 0.11.23 — 0.11.22, shipped
+
+0.11.22's release, which never shipped. The tag v0.11.22 is there, but
+its publish stopped at the format check of the overlay's code, so it has
+no release. Everything in 0.11.22 is in it, and so is everything since
+0.11.15, the last release to reach the Marketplace. It is the first
+under the extension's new ID (0.11.20).
+
+- **The overlay's code is formatted** as `cargo fmt` wants; nothing it
+  does changed.
+- **TESTING.md says how to test, not how it went.** The dated runs, their
+  figures, the check counts by version and the record of past reviews are
+  gone; what each check runs, covers and passes on stays. The few facts
+  only those records held are now in FUTURE_WORK.md, DEFERRED.md or a
+  comment beside the code.
+
+## 0.11.22 — A Rust host, on trial
+
+H2 of the Rust host's plan (native/SPEC.md §3.10): `chatq-overlay.exe`
+can be the overlay's host in PowerShell's place. It is opt-in twice: it
+starts only with `"overlay": {"host": "rust"}` (`chatoverlay -Host rust`)
+and `CHATQ_RUST_HOST=1` set where the overlay starts. Without both,
+nothing changes.
+
+- **What it does.** It takes the same lock as the PowerShell host, so
+  only one of them runs. It collects every 2 s and saves `overlay.json`
+  each time, and starts the native panel as its child, restarting it up
+  to 3 times in 10 minutes; past that the panel's fuse blows and the WPF
+  panel takes over, as today. `chatoverlay -Stop` and a restart work. It
+  writes to `data/logs/overlay.log` like the PowerShell host.
+- **What it does not do yet.** Clicks on the panel, the console, the
+  panel's close button, keeping a stop until the next sign-in, continuing
+  cut-off chats, the reset question,
+  live usage, the watcher's state and the host-work notes. Those stay
+  with the PowerShell host for now; the panel shows the chats and usage
+  read from files.
+- **It falls back on its own.** A Rust host that ends without being
+  asked (a crash, a hang its watchdog ends after 60 s, or 5 collections
+  in a row that fail) 3 times in 10 minutes is not started again for
+  that version: the PowerShell host starts instead and says so once.
+  `chatoverlay -Host rust` tries it again, its count started afresh. Its starts are kept in `data/native/host-starts.json` and the
+  fuse in `data/native/host-fuse.json`.
+- **Restarts.** It restarts only when the script on disk says a new
+  version, looked at once a minute, and each restart goes back through
+  the PowerShell launcher, which picks the host again.
+- **`chatoverlay -Host rust|ps|shadow`** sets the host and restarts a
+  running overlay onto it.
+- **Apart from the Rust host: a git checkout's native panel no longer
+  goes quietly.**
+  Nothing stages `bin/<version>/` in a checkout, so at each version bump
+  the overlay fell back to the WPF panel and said nothing. Since 0.11.11
+  that panel lacks Character view, the skin picker and the
+  Ctrl+Alt+Shift+D chord. With no `bin/<version>/`, the overlay now uses
+  the checkout's own build in
+  `native/overlay/target/x86_64-pc-windows-msvc/release/`, as long as its
+  `--version` is the script's. The version is asked once per build and
+  per process; one that hangs or will not start is asked again after a
+  minute, not at every look. A restart onto new code finds the panel
+  the same way, so a panel running from an older `bin/` moves to the
+  build. Where that build is at another version, or `bin/` holds only
+  another version's exe, `overlay.log` says so at every start and the
+  tray once per version, with the cargo command that builds it; so does
+  `chatoverlay -Panel native`. `bin/<version>/` still comes first, and
+  the panel's fuse still wins. A zip install stays quiet as before
+  (DEFERRED.md "The panel exe for install.ps1").
+- **Apart from the Rust host: Character view's dials are redrawn, with
+  a number in the middle.** Before, a working dial's colour stepped from
+  cyan to violet at 5 minutes and pink at 20, its wedge was the minutes
+  in the hour, and every dial was a bright pie under a lit rim. Now each
+  dial is a dark disc with a ring of 20 dim red segments, and only what
+  is live is lit. A working dial shows its age in the middle - minutes
+  (`0` in the first minute), then hours (`1h`), with a play mark for a
+  running one - and fills the ring in cyan from 12 o'clock, one lap at a
+  time: 5 minutes, then to 20, then to 60, then one an hour. A knob
+  marks where it is in the lap and three pips under the number count
+  the laps done; it moves every second, and the hour ticks stay. A chat
+  that needs you is a gold disc with `!`; finished and unread, a cyan
+  disc with a check; cut off, a red number counting to the reset
+  (minutes, then `3h`, then `2d`), or a red warning triangle with no
+  reset time; queued, a dim share up to its send; idle, a smaller dashed
+  grey ring. The top dial's brackets take its state's colour, and the
+  finish flash and the unread diamond are cyan rather than green.
+- **Apart from the Rust host: no chat names beside the dials, and the
+  top dial is whole.** The chat names right of the dials are gone, and
+  the HUD's window is that much narrower; rest the pointer on a dial for
+  its chip and card, as before. A speech box that has to go right of
+  the HUD, at a screen's left edge, now sits 34 units from the dials
+  rather than from the names. The top dial sat so high that its
+  corner brackets and hour ticks were cut off by the window's top edge;
+  the dials now sit 6 units lower, so every mark shows.
+- **Apart from the Rust host: the usage marks in Character view show
+  their card.** Resting the pointer on the usage bars under the
+  character showed nothing; it now shows the same usage card as the
+  gauges in Panel view, with each window's percent and reset time.
+- **Apart from the Rust host: no line from the speech box to the
+  character.** The glowing line and dot that ran from the box to the
+  character's mouth are gone. The box still sits beside the character,
+  level with its mouth, and that alone says who is talking.
+- **Apart from the Rust host: no glitches on a click in Character
+  view.** Switching to Character view tore the tile panel, smeared it,
+  went dark and threw bolts off the character; switching back ran the
+  same backwards. Both ways are now a short fade, as they already were
+  with Windows' Show animations off. The speech box no longer flashes a
+  red line when its text changes or when it goes, and no longer
+  flickers after it wipes in (how it comes and goes now is below).
+- **Apart from the Rust host: no stray title bar on the HUD.** Windows
+  could paint a classic title bar and frame, with the title
+  `chatq-overlay`, straight into the HUD when one of its windows was
+  activated or deactivated, and a close button when winit changed a
+  window's flags. The parts the HUD did not draw again stayed on screen
+  as grey-blue strips. The overlay now tells Windows not to paint them.
+- **Apart from the Rust host: Character view starts unlocked.** One
+  lock served both views, on by default and on again 2 minutes after
+  the pointer left, so moving the character meant unlocking it each
+  time. Character view now has a lock of its own, `stageLocked` in
+  `data/overlay-state.json`: off by default (no key reads as off), so
+  the character can be dragged straight away, and never locked again by
+  itself. **Lock** in the tray menu, Ctrl+Alt+Shift+O and
+  `chatoverlay -Lock`/`-Unlock` act on the lock of the view on show, and
+  the menu says that view's; picked in Character view, Lock pins the character
+  and is kept across restarts. Panel view, the folded strip and the WPF
+  panel keep `locked` as before, relock included. With the overlay not
+  running, `-Lock` and `-Unlock` set both.
+- **Apart from the Rust host: the dark look is cyan and gold.** The
+  crimson, neon green and magenta of 0.11.11 are gone. The dark look is
+  blue-black now: cyan for the lines, the project names, the accent, the
+  unread dot and the tray's ring, and a faint cyan under the pointer;
+  gold for a chat that waits on you, warnings and Character view's
+  action plate; red for cut off, critical and the unlocked edge; mint
+  green for a chat at work in Panel view (Character view's dials work
+  in cyan); and a warm white for text. Its greys are
+  cooler and still readable: at least 4.5:1 against the ground for body
+  text and 3:1 for the faintest. Running (blue) and queued
+  (purple) keep their colours. Cut off is red in the light look too
+  (`#CF222E`), so the tooltips and help that said magenta now say red.
+  In Character view the timer under a choice is gold; the speech box's
+  own colours are below. A
+  pack's `colours` in skin.json still win, its `text` colouring the
+  words too.
+- **Apart from the Rust host: the speech box is drawn as a game's
+  dialogue.** It follows a measured spec of a game's dialogue at its
+  1080p sizes, in Rajdhani, an OFL face now built into the exe (its
+  licence is in `THIRD-PARTY-NOTICES.html`); the dials and the rest of
+  the HUD keep Bahnschrift. The line sits on a soft black see-through
+  plate with no edge: the name coral, the words cyan, a warning's name
+  red, a status line's label dim. It is no longer typed and has no
+  cursor: each turn flickers in whole in about a third of a second, and
+  stays up as long as it did before. A click on it goes to the next turn
+  or dismisses it. The replies are rows: the selected one on a gold
+  plate (cyan for the other kind) with a cut corner, the rest in their
+  colour with a thin rule at their left. Left of them sit the asking
+  chat's name in a coral tag and a key badge with the selected row's
+  digit and a small pointer. A new selection wipes across in four steps,
+  and a pick or the box's going cuts it at once, with no fade. The box
+  still sits beside the character, its replies and timer under it. A
+  pack's `name`, `text`, `primary` and `box` colours still win.
+
+## 0.11.21 — The shadow times a PowerShell step
+
+H1 of the Rust host's plan (native/SPEC.md §3.9): the go/no-go for doing
+the overlay's acting work in short PowerShell steps. Only the opt-in
+shadow (`"overlay": {"host": "shadow"}`) changes; the overlay does not.
+
+- **A step for the overlay.** `src/overlay-step.ps1` is a new file
+  beside the parts, run with no window, one op each time. It loads only
+  the 9 parts its op reaches. It is fed the idle time and the process
+  list, so it compiles no C# and asks WMI nothing; a call to either is
+  refused and counted. It checks that the collector that started it is
+  still there, before and after its op, and ends itself if not. A step
+  from another version says so and does nothing; the shadow sends the
+  panel's own version, which its build already holds to the script's.
+- **The shadow runs a look every minute.** It asks the step for the
+  cut-off chats the overlay would show now, worked out exactly as the
+  overlay does but with nothing written: no old question marker pruned,
+  no note kept, no chat continued, no log line. Its caches are kept from
+  one look to the next in `data/native/overlay-carry-look.clixml`, and
+  dropped when the version changes.
+- **In PowerShell 7 where there is one.** The step runs in pwsh 7, which
+  loads its parts in 46 MB to Windows PowerShell 5.1's 120:
+  `overlay.stepPowerShell` in `config.json`, a full path to a pwsh.exe
+  kept off the PATH, else pwsh on the PATH, else the standard install;
+  with none, in 5.1, as the overlay itself still runs.
+- **A step that hangs is ended.** A step still running after 30 s is
+  killed and its files removed, so the next look starts on time. When
+  the overlay stops, a running step gets 1 s and is then killed, within
+  the 2 s the overlay gives the shadow to go. Step files a killed shadow
+  left are removed when the next one starts. A look that failed is not
+  compared: the last good one's rows would be out of date.
+- **Compared and measured.** The step's rows are compared with the
+  overlay's own cut-off rows. A difference must last 64 passes (about
+  two looks) to be logged, as the two sides look at different times.
+  Every step's run time, exit code and peak private memory are logged.
+  The gate for going on: a median look of 1.5 s or less, a peak of
+  120 MB or less under pwsh 7 (150 MB where only 5.1 is found), and no
+  compiler started, over a day of real use. A first run here took 1.1 s,
+  peaking at 67 MB under PowerShell 7 and 135 MB under Windows
+  PowerShell 5.1. The day itself is still to be run
+  (TESTING.md, "The overlay's steps").
+- **chatqd unchanged.** The step runner chatqd already used now lives
+  in `chatq-core`, where the overlay shares it. chatqd's steps behave
+  as before, and its tests are unchanged.
+
+## 0.11.20 — A new extension ID
+
+The extension's ID now matches its name: `redaechan.chat-session-agent-mk5`.
+A new ID is a new Marketplace listing, so the one you have,
+`redaechan.charlie-and-the-chat-factory`, does not update to it: 0.11.19
+is its last version.
+
+- **What to do:** install **Chat Session Agent Mk.5 - Claude Code &
+  Codex** from the Marketplace, or run
+  `code --install-extension redaechan.chat-session-agent-mk5`; click
+  **Uninstall it** when it asks, and reload the window. Best done while
+  no queued prompt is running. The old listing will be marked
+  deprecated, with this one as its replacement, so VS Code shows its
+  users a banner with a switch to it.
+- **A new display name too.** The Marketplace refuses a display name
+  another listing has, and the old one keeps *Chat Session Agent Mk.5 -
+  Claude, Codex, ...*; "Claude" and "Codex" stay in the new one for
+  search. The READMEs' titles, the settings' section and the log's
+  output channel take the new name as well.
+- **The new one offers to remove the old one.** Both installed would act
+  on every request twice, and VS Code refuses the same command from two
+  extensions. So while the old ID is installed, the new one does nothing
+  at all - no commands, no watching, no setup, no overlay - and leaves
+  everything to the old one, which keeps working as before. One window
+  at a time asks to uninstall it; after **Not now**, a window opened or
+  reloaded 10 minutes later asks again. A disabled old one is not
+  counted.
+- **What carries over:** your `chatManager.*` settings, the **Chat
+  Manager:** commands, the tool folder and everything in `data/` -
+  among it the profile-line answer (**Never** stays never), the overlay's
+  autostart, phone alerts and the queue. No question you answered comes
+  back.
+- **What does not:** what VS Code keeps per extension. The requests a
+  window already took are forgotten, so the first window after the
+  switch may offer once more a reload for a delete from the last 10
+  minutes, or open again a chat whose overlay chip was clicked in the
+  last 2 minutes. A chat handed to a queued run that is still going at
+  the switch is not put back in its tab when the run ends: open it from
+  the overlay or **Open chat...**. Nor does the window's last activation
+  (`chatManager.lastActivationSessionId`), so for the first 30 seconds
+  after the switch in each workspace, a new Claude tab that **Show it**
+  opens is taken as maybe one Claude Code reopened by itself: judged,
+  nothing ended. Nothing was kept in VS Code's secret storage.
+- **For the one who publishes:** the old listing is marked Deprecated
+  by hand in the Marketplace publisher portal after this one's first
+  publish, with `redaechan.chat-session-agent-mk5` as its replacement;
+  the old ID gets no release. The public repo is synced only after
+  publish.yml has published the new listing, since its README's badge,
+  link and install line name it (docs/marketplace-spec.md).
+- **For the one who develops:** the self-test's last section, `versions`,
+  fails when the files a release bumps disagree. The workspace's VS Code
+  watcher now skips `tests/.sandbox`: the PowerShell extension opened
+  each new `.ps1` there and held it, so the public split's second sync
+  could not delete one (the failure in 0.11.14). Under 5.1 the self-test
+  runs without `-ExecutionPolicy Bypass`, on the README's `RemoteSigned`.
+
+## 0.11.19 — The shadow reads usage from its files
+
+The next part of M9b step 3 (native/SPEC.md §7). Only the opt-in shadow
+(`"overlay": {"host": "shadow"}`) changes; the overlay does not.
+
+- **The shadow reads usage's files itself.** Claude Code's cached usage
+  in `.claude.json` and the figure Codex writes into its rollouts are
+  now read by the shadow, as often as PowerShell reads them: each file
+  is looked at every 30 s and read again only once it has changed, and
+  the rollouts are listed every 5 minutes. From those it works out each
+  line itself: which figure is newer, the whole percents, a window
+  whose reset has passed shown empty, a window marked full while the
+  queue waits out its limit, whether the figure is old, the line's text
+  and the time at its end ("cached 11:53", "last run Sat 12:00").
+- **What asks the network is still PowerShell's.** The live figures for
+  Claude, Codex and Copilot, why an ask failed, and the words about an
+  ask under way ("asking...", the refresh button's note, "retry 12:30")
+  are taken from PowerShell, as the shadow asks nothing itself. It never
+  opens the saved login.
+- **Usage is compared.** The header's `usage` and `usageText` are no
+  longer left out of the comparison. A difference must last 20 passes
+  to count, as each side looks at the files on its own 30 s. While
+  Codex works, its rollout gains a figure every few seconds, so each
+  side shows the one of its own look: a file's figure read at most one
+  look (35 s) from PowerShell's counts as PowerShell's. A new
+  rollout can still show on one side up to 5 minutes first, and the
+  refresh button reads the files again in PowerShell only; both are
+  listed as known differences in FUTURE_WORK.md.
+- **Settled by vectors.** Three new vectors, `overlay-usage-parse`,
+  `overlay-usage-files` and `overlay-usage-select`, pin PowerShell's
+  reading of usage on 73 cases, among them Korea and Pacific time
+  across the autumn clock change; the two PowerShells differ only on a
+  reset time written with no zone. The Rust side agrees with every one.
+
+## 0.11.18 — The shadow watches memory itself
+
+The next part of M9b step 3 (native/SPEC.md §7). Only the opt-in shadow
+(`"overlay": {"host": "shadow"}`) changes; the overlay does not.
+
+- **The shadow looks at memory and leaks itself.** Each pass it looks
+  for a program growing fast and then for Windows' memory running
+  short, in that order, as PowerShell's host does: the commit figures at
+  most every 10 s, and every process's private bytes at most once a
+  minute, one list the two looks share. That list comes from one call
+  that opens no process, so it holds what PowerShell's holds, System,
+  Secure System and Registry among them. The looks run on the
+  shadow's own settings (`memoryWarn`, `leakGB`); one that is not a
+  number is a line in its log, as in PowerShell, and never the header's
+  error.
+- **They are compared, with some slack.** The two sides read Windows
+  moments apart, so the header's `memory` and `leaks` are no longer
+  left out of the comparison but compared loosely: the percent within
+  1, the GB figures within 0.3 (a leak's within a minute of its growth
+  more), a leak's minutes within 1, the top programs by name alone, and
+  the leaks by name in any order. Memory low on one side only, under
+  its line, is no difference: that side caught a moment at the line and
+  stays low till 3 under, as PowerShell does. A difference must last 8
+  passes for memory, 64 for its top programs (each side picks them once
+  a minute) and 40 for leaks to count.
+  The leaks are not compared at all for the first 11 minutes after the
+  shadow starts, or after PowerShell's host restarts: neither side can
+  name a leak before it has looked for 10 minutes.
+- **What PowerShell would say, the shadow logs.** Memory going low and
+  back, and a program growing, are each a `said:` line in
+  overlay-shadow.log, every time, never held back as a repeated fault
+  is.
+- **The minute's sample has PowerShell's size too.** The `sample` line
+  gains `psPrivate=`, the PowerShell host's private bytes, taken from
+  the same list by its pid, so the two hosts' sizes stand side by side.
+- **Settled by vectors and a live check.** A new vector,
+  `overlay-memory`, pins PowerShell's memory look, its leak look, its
+  memory-restart fuse and its sum of each program's bytes on 50 cases,
+  answered alike by both PowerShells; the Rust side agrees with every
+  one. For it, the sum gained a test seam in the overlay's PowerShell
+  that nothing else sets. `tests/vectors/live-sums.ps1` holds the Rust
+  list (`chatq-overlay --sums`) against PowerShell's on this PC: 379 of
+  380 processes alike, the one missing the check's own short-lived
+  child, and every shared one's bytes within 5% or 50 MB. The fuse is
+  ported for the Rust host, which has no heap to compact; nothing calls
+  it yet.
+
+## 0.11.17 — The shadow reads its own config
+
+The next part of M9b step 3 (native/SPEC.md §7). Only the opt-in shadow
+(`"overlay": {"host": "shadow"}`) changes; the overlay does not.
+
+- **The shadow reads config.json itself.** PowerShell reads its
+  settings only at its start, on a reload and on a setting the panel
+  changes, and the shadow cannot see those. So it watches PowerShell's
+  snapshot: when the settings there change, it reads config.json and
+  runs on what it read. Where what it read differs from PowerShell's
+  and the file was written while PowerShell was reading it, it cannot
+  tell which PowerShell saw, so it takes PowerShell's settings and says
+  so. At its start it takes PowerShell's, and logs it if the file says
+  otherwise. Each read again logs whether the two agree.
+- **The settings are compared.** The snapshot's `config`, and the
+  header's `autoContinue` and `autoOn` that come from it, are no longer
+  left out of the comparison, so a slip in the Rust read of config.json
+  shows as a difference.
+- **Recent skips the shadow's own rows.** The chats left out of Recent
+  are the live ones and those the shadow has a row for, cut-off rows
+  included, not those PowerShell has a row for. A row the shadow gets
+  wrong now shows in Recent too, and the Rust host will have no other
+  rows to go by.
+- **What PowerShell does with a config it refuses is settled.** A new
+  vector, `overlay-config-refused`, shows that with a `try` above it,
+  as every caller has, the error goes past the assignment under both
+  PowerShells: a reload loses that pass and keeps the old settings, and
+  the host's start fails. The `overlay-config` vector gains a whole
+  file that is not an object, an empty file, one of white space, a
+  byte-order mark and `1e999`; the Rust read agreed with every one.
+- **The Rust lock check reads a folder as no watcher.** A folder named
+  `watcher.lock` in data/ read as a running watcher to the Rust check
+  (the native launcher's crash count uses it, and the Rust host will),
+  where PowerShell reads it as none; now both say none. A new vector,
+  `overlay-watcher`, pins PowerShell's check on twelve cases, among them a held lock, a
+  read-only file (held) and a folder (not). The shadow still takes the
+  watcher's state from PowerShell, as checking it means holding the
+  lock for an instant, which the shadow must not do.
+
+## 0.11.16 — The shadow's error, compared
+
+The first part of the next step of moving the overlay off PowerShell
+(native/SPEC.md §7, M9b step 3): the Rust collector brought to every
+field the PowerShell one works out from files. Only the opt-in shadow
+(`"overlay": {"host": "shadow"}`) changes; the overlay does not.
+
+- **The header's error is compared.** The shadow's own errors (the
+  chats, the tabs, the queue, Recent) are now checked against
+  PowerShell's, by their category: `queue` of `queue: <message>`, as
+  .NET and Rust word the same fault differently. An error only
+  PowerShell can raise is taken from its snapshot, at the place in the
+  pass where PowerShell sets it: one from a part that still runs in
+  PowerShell alone (usage, the cut-off look, restarts, auto-continue,
+  the reset ask), from closing the jobs answered in their chat, which
+  the shadow never does, and from reading background work, which in
+  Rust has no error.
+- **Some differences will have to last longer to count.** Usage must
+  differ for 4 passes, memory for 8 and leaks for 40 once they are
+  compared; until then they are left out as before, and the rest still
+  count at 2. Their PowerShell reads run on their own cadence, so the
+  two sides see a change passes apart.
+- **The shadow's log lists what it borrows.** At its start,
+  `data/logs/overlay-shadow.log` names each field it takes from
+  PowerShell rather than works out, and why. A test holds every field
+  the comparison leaves out to that list, or to the few the host makes
+  itself (its pid, its time, its commands and events, and the unread
+  dots).
+
 ## 0.11.15 — The registry check in any zone
 
 The first release since 0.11.6 to reach the Marketplace. v0.11.12 and
@@ -731,7 +3230,7 @@ Nothing you run changes: the overlay loads neither yet.
 - **chatqd on macOS knows a binary named with `..` as the same one.**
   Off Windows Rust's `std::path::absolute` keeps `..`, where PowerShell's
   FullName drops it, so the preflight record could hold one binary twice;
-  Identity.of now drops it by
+  [Identity.of](native/crates/chatq-core/src/launch.rs) now drops it by
   text there, symlinks left alone. Windows names nothing differently.
   0.10.17's tag never published: this check failed on macOS.
 
@@ -2770,7 +5269,7 @@ version of the extension waits for the window's chats before it reloads.
   terminal session by itself, but not a chat whose tab was closed, a
   process chatq ended, or a PC that slept - and never says so on the phone.
   The spec, with how the two modes were fitted together, is
-  docs/auto-continue-spec.md.
+  [docs/auto-continue-spec.md](docs/auto-continue-spec.md).
 
 ### An update, and the chats a reload would stop
 

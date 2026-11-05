@@ -1640,11 +1640,13 @@ function Start-ChatqWatcherProcess {
 #endregion
 
 #region the native watcher's launch ------------------------------------------
-# chatqd, the native watcher (native/SPEC.md), runs wherever its binary is:
-# R/bin/<version>/<target>/, which only a developer's build fills until it
-# ships, or CHATQ_CHATQD. The decision, its records in data/native/ and the
-# fuse are held equal to native/crates/chatq-core/src/launch.rs by the cases
-# in native/vectors/launch.json (tests/sections/native.ps1). With no binary -
+# chatqd, the native watcher (native/SPEC.md), runs from CHATQ_CHATQD when
+# that is set; else from R/bin/current/<target>/ when the copy there says
+# this version; else from R/bin/<version>/<target>/. Until chatqd ships,
+# only a developer's native/stage.ps1 fills those two folders. The
+# decision, its records in data/native/ and the fuse are held equal to
+# native/crates/chatq-core/src/launch.rs by the cases in
+# native/vectors/launch.json (tests/sections/native.ps1). With no binary -
 # every user today - a launch costs a look for data/native and one for
 # bin/ more than it did, and reads and writes nothing.
 
@@ -1654,7 +1656,8 @@ function Start-ChatqWatcherProcess {
 $script:ChatqNativeTarget = if ($script:ChatqIsWindows) { 'x86_64-pc-windows-msvc' } elseif ($script:ChatIsMac) { 'universal-apple-darwin' } else { $null }
 
 function Get-ChatqNativeFile {
-    # data/native/<Name>: pending.json, last.json, verified.json, fuse.json
+    # data/native/<Name>: pending.json, last.json, verified.json, missed.json,
+    # fuse.json
     param([string]$Name)
     Join-Path (Join-Path $script:ChatqData 'native') $Name
 }
@@ -1674,6 +1677,28 @@ function Get-ChatqNativePath {
     if (-not $script:ChatRoot -or -not $script:ChatqNativeTarget) { return $null }
     $exe = if ($script:ChatqIsWindows) { 'chatqd.exe' } else { 'chatqd' }
     return [System.IO.Path]::Combine([string]$script:ChatRoot, 'bin', $Version, $script:ChatqNativeTarget, $exe)
+}
+
+function Get-ChatqNativeStablePath {
+    # The version-stable copy native/stage.ps1 keeps beside each bin/<v>/:
+    # R/bin/current/<target>/chatqd(.exe), one path for every release, so
+    # one firewall rule by path lasts across them (native/SPEC.md 4.2, 4.7).
+    # Taken only when it says the loader's version (Get-ChatqWatcherEngine).
+    # Deferred: DEFERRED.md "The stable copy staged on a Mac"
+    # Deferred: DEFERRED.md "A cargo build over native/target while chatqd runs from it"
+    # None where Get-ChatqNativePath would have no folder; launch.rs
+    # stable_path.
+    if (-not $script:ChatRoot -or -not $script:ChatqNativeTarget) { return $null }
+    $exe = if ($script:ChatqIsWindows) { 'chatqd.exe' } else { 'chatqd' }
+    return [System.IO.Path]::Combine([string]$script:ChatRoot, 'bin', 'current', $script:ChatqNativeTarget, $exe)
+}
+
+function Test-ChatqNativeRunnable {
+    # a file there to run: on a Mac its owner exec bit too, which a VSIX
+    # does not keep
+    param([string]$Path)
+    if (-not $Path -or -not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $false }
+    return -not ($script:ChatIsMac -and ([string](Get-Item -LiteralPath $Path).UnixMode)[3] -cnotin 'x', 's')
 }
 
 function Get-ChatqLoaderVersion {
@@ -1829,20 +1854,47 @@ function Get-ChatqNativeIdentity {
 }
 
 function Test-ChatqNativeVerified {
-    # has this exact build passed preflight before? The path case-blind, as
-    # -eq compares it
-    param($Id)
+    # has this exact build passed preflight before, for scripts of
+    # $Version? The path case-blind, as -eq compares it. The version is part
+    # of the key: an unchanged binary at one path - the stable copy, or a
+    # CHATQ_CHATQD build - is asked again after a bump, and an entry written
+    # before entries carried one is asked again once (launch.rs verified)
+    param($Id, [string]$Version = $script:ChatVersion)
     $v = Read-ChatqJson (Get-ChatqNativeFile 'verified.json')
-    foreach ($e in @($v.passed)) {
-        if ($e -and [string]$e.path -eq $Id.path -and (Get-ChatqNativeInt $e.size) -eq $Id.size -and (ConvertTo-ChatqNativeStamp $e.mtime) -ceq $Id.mtime) { return $true }
-    }
+    foreach ($e in @($v.passed)) { if (Test-ChatqNativeEntry $e $Id $Version) { return $true } }
     return $false
 }
 
+function Test-ChatqNativeEntry {
+    # an entry of verified.json or missed.json for this identity and version
+    # (launch.rs is_entry)
+    param($E, $Id, [string]$Version)
+    return [bool]($E -and [string]$E.path -eq $Id.path -and (Get-ChatqNativeInt $E.size) -eq $Id.size -and (ConvertTo-ChatqNativeStamp $E.mtime) -ceq $Id.mtime -and
+        $E.PSObject.Properties['version'] -and $E.version -is [string] -and $E.version -ceq $Version)
+}
+
+function Test-ChatqNativeMissed {
+    # has the stable copy, as it is now, already been asked for $Version and
+    # not said it? missed.json holds that one look, so a stale copy - the
+    # state between a bump and the next stage - or one that hangs costs one
+    # process start (up to the 5 s timeout) per identity and version, not
+    # one per launch. A changed file or a bump asks again (launch.rs missed)
+    param($Id, [string]$Version)
+    return Test-ChatqNativeEntry (Read-ChatqJson (Get-ChatqNativeFile 'missed.json')) $Id $Version
+}
+
+function Add-ChatqNativeMissed {
+    # the stable copy's look that did not say $Version, in place of any
+    # earlier one: one entry, for the one stable path
+    param($Id, [string]$Version)
+    Save-ChatqJson (Get-ChatqNativeFile 'missed.json') ([ordered]@{ path = $Id.path; size = $Id.size; mtime = $Id.mtime; version = $Version; at = Get-ChatqStamp })
+}
+
 function Add-ChatqNativeVerified {
-    # a pass, in place of any earlier one for the same path - a binary since
-    # rebuilt - so the file keeps one entry per path and never grows
-    param($Id)
+    # a pass for scripts of $Version, in place of any earlier one for the
+    # same path - a binary since rebuilt, or a version since bumped - so the
+    # file keeps one entry per path and never grows
+    param($Id, [string]$Version = $script:ChatVersion)
     $f = Get-ChatqNativeFile 'verified.json'
     $v = Read-ChatqJson $f
     $passed = @(foreach ($e in @($v.passed)) {
@@ -1850,7 +1902,7 @@ function Add-ChatqNativeVerified {
             foreach ($k in 'mtime', 'at') { if ($e.PSObject.Properties[$k]) { $e.$k = ConvertTo-ChatqNativeStamp $e.$k } }
             $e
         })
-    $passed += [pscustomobject]@{ path = $Id.path; size = $Id.size; mtime = $Id.mtime; at = Get-ChatqStamp }
+    $passed += [pscustomobject]@{ path = $Id.path; size = $Id.size; mtime = $Id.mtime; version = $Version; at = Get-ChatqStamp }
     Save-ChatqJson $f ([ordered]@{ passed = $passed })
 }
 
@@ -1889,7 +1941,14 @@ function Get-ChatqWatcherEngine {
       - a Windows PC or a Mac, with the binary there to run - on a Mac its
         owner exec bit too, which a VSIX does not keep;
       - no strike found by this call, and no fuse blown;
-      - the build has passed preflight, run once per build (verified.json).
+      - the build has passed preflight for this version, run once per build
+        and version (verified.json).
+    The binary is the stable copy (Get-ChatqNativeStablePath) when it says
+    this version - asked as a plain look, so one of another version, or one
+    that does not answer, is no strike, no fuse and no alert - else
+    bin/<version>/ (Get-ChatqNativePath), whose failed preflight strikes.
+    CHATQ_CHATQD, when set, is the binary and the stable copy is not looked
+    at.
     Strikes are looked for first, by every launch: one found makes this
     launch the PowerShell watcher's, so a broken binary leaves no gap longer
     than the next launch. The binary is looked for before config is read,
@@ -1910,8 +1969,9 @@ function Get-ChatqWatcherEngine {
     $why = $null
     $exe = $null
     $bin = if ($ver) { Get-ChatqNativePath $ver } else { $null }
-    $runs = $script:ChatqNativeTarget -and $bin -and (Test-Path -LiteralPath $bin -PathType Leaf) -and
-        -not ($script:ChatIsMac -and ([string](Get-Item -LiteralPath $bin).UnixMode)[3] -cnotin 'x', 's')
+    $cur = if ($ver -and -not $env:CHATQ_CHATQD) { Get-ChatqNativeStablePath } else { $null }
+    $curRuns = Test-ChatqNativeRunnable $cur
+    $runs = $script:ChatqNativeTarget -and ($curRuns -or (Test-ChatqNativeRunnable $bin))
     if (-not $script:ChatqNativeTarget) { $why = 'no native build for this system' }
     elseif (-not $look) { $why = 'no chatqd: no bin folder and no CHATQ_CHATQD' }
     elseif (-not $ver) { $why = "the scripts' version cannot be read from $Path" }
@@ -1920,16 +1980,33 @@ function Get-ChatqWatcherEngine {
     elseif ($struck) { $why = 'a strike was just recorded' }
     elseif (Test-ChatqNativeFuseBlown $ver) { $why = "the native watcher failed 3 times for $ver" }
     else {
-        $id = Get-ChatqNativeIdentity $bin
-        if (-not $id) { $why = "cannot read $bin" }
-        elseif (-not (Test-ChatqNativeVerified $id)) {
-            $no = Invoke-ChatqNativePreflight $id.path $ver
-            if ($no) {
-                $why = "preflight failed: $no"
-                Add-ChatqNativeStrike 'preflight' $null $why $ver
-                $seen = $true
+        $id = $null
+        $not = ''
+        $cid = if ($curRuns) { Get-ChatqNativeIdentity $cur } else { $null }
+        if ($cid) {
+            if (Test-ChatqNativeVerified $cid $ver) { $id = $cid }
+            elseif (Test-ChatqNativeMissed $cid $ver) { $not = " (the one at $cur is not $ver)" }
+            else {
+                $said = Invoke-ChatqNativePreflight $cid.path $ver
+                if ($said) { try { Add-ChatqNativeMissed $cid $ver } catch {}; $not = " (the one at $cur is not ${ver}: $said)" }
+                else { try { Add-ChatqNativeVerified $cid $ver } catch {}; $id = $cid }
             }
-            else { try { Add-ChatqNativeVerified $id } catch {} }
+        }
+        if (-not $id) {
+            if (-not (Test-ChatqNativeRunnable $bin)) { $why = "no runnable chatqd at $bin$not" }
+            else {
+                $id = Get-ChatqNativeIdentity $bin
+                if (-not $id) { $why = "cannot read $bin" }
+                elseif (-not (Test-ChatqNativeVerified $id $ver)) {
+                    $no = Invoke-ChatqNativePreflight $id.path $ver
+                    if ($no) {
+                        $why = "preflight failed: $no"
+                        Add-ChatqNativeStrike 'preflight' $null $why $ver
+                        $seen = $true
+                    }
+                    else { try { Add-ChatqNativeVerified $id $ver } catch {} }
+                }
+            }
         }
         if (-not $why) { $exe = $id.path }
     }

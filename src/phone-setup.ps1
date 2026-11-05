@@ -40,16 +40,16 @@ $script:ChatqPhoneSetupServerHint = 'Blank for ntfy.sh. https only. Your own ser
 
 # Two looks, the overlay's colours: a state keeps its meaning in both, the
 # light look's darker to read on white. fill is a pressed-in choice (Save, a
-# ticked box) - a shade deeper than accent in the dark look, so white text on
-# it still reads. headFont, headWeight, rule and trim are the heading's: the
-# dark look's the overlay's condensed face over a short green rule; the
+# ticked box) - in the dark look a shade deeper than its cyan accent, under
+# dark text (onFill). headFont, headWeight, rule and trim are the heading's:
+# the dark look's the overlay's condensed face over a short cyan rule; the
 # light look's as before, its rule collapsed.
 $script:ChatqPhoneSetupPalettes = @{
     dark  = @{
-        window = '#FF0A0709'; text = '#FFF3ECEC'; dim = '#FFB8A9AC'; faint = '#FF8A7A7E'; input = '#FF070405'; edge = '#70E8003A'
-        line = '#4DE8003A'; hover = '#45E8003A'; accent = '#FFE8003A'; fill = '#FFB8002E'; onFill = '#FFFFFFFF'; select = '#3D21FE64'
-        ok = '#FF21FE64'; warn = '#FFF5B942'; error = '#FFFF5C7A'; link = '#FF21FE64'; bar = '#2EF5B942'
-        headFont = 'Bahnschrift, Segoe UI, Malgun Gothic, Microsoft YaHei UI'; headWeight = 'Normal'; rule = 'Visible'; trim = '#FF21FE64'
+        window = '#FF08080D'; text = '#FFE2DCCF'; dim = '#FF9A95A3'; faint = '#FF6E697C'; input = '#FF050508'; edge = '#705EF6FF'
+        line = '#4D5EF6FF'; hover = '#2E5EF6FF'; accent = '#FF5EF6FF'; fill = '#FF3FD3DC'; onFill = '#FF0E0E17'; select = '#3D5EF6FF'
+        ok = '#FF1DED83'; warn = '#FFF0B537'; error = '#FFF75049'; link = '#FF5EF6FF'; bar = '#2EF0B537'
+        headFont = 'Bahnschrift, Segoe UI, Malgun Gothic, Microsoft YaHei UI'; headWeight = 'Normal'; rule = 'Visible'; trim = '#FF5EF6FF'
     }
     light = @{
         window = '#FFF6F8FA'; text = '#FF1F2328'; dim = '#FF57606A'; faint = '#FF8C959F'; input = '#FFFFFFFF'; edge = '#40000000'

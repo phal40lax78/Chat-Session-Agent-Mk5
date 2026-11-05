@@ -2587,13 +2587,7 @@ function Update-ChatqLiveAlerts {
             # message, and the Stop no longer shows
             if ($ev -eq 'done' -and $m.HandRead -ne $m.Since) {
                 $m.HandRead = $m.Since
-                $texts = Get-ChatField $Ctx 'Text'
-                $tx = if ($texts) { $texts[$sid] } else { $null }
-                $hp = if ($tx -and $tx.Path) { [string]$tx.Path } else {
-                    $hd = [string](Get-ChatField $Ctx 'ClaudeHome'); if (-not $hd) { $hd = $script:ChatClaudeHome }
-                    Find-ChatOverlayTranscript $hd ([string](Get-ChatField $mine[$sid][0] 'Cwd')) $sid
-                }
-                if ($hp -and (Test-ChatStoppedByHand (Get-ChatqLastTurn $hp))) {
+                if (Test-ChatqLiveStoppedByHand $Ctx $sid $mine[$sid].ToArray()) {
                     $m.Settled = $true; Write-ChatOverlayLog "phone: no done alert for $sid - you stopped it"; continue
                 }
             }
@@ -2606,49 +2600,83 @@ function Update-ChatqLiveAlerts {
             if ($last -and [Math]::Abs(($Now - $last).TotalMinutes) -lt 3) { continue }
             if ($null -eq $watched) { $watched = Get-ChatqWatchedSessions $Ctx }
             if ($watched[$sid]) { $m.Settled = $true; Write-ChatOverlayLog "phone: no $ev alert for $sid - the watcher is running a job in it"; continue }
-            $e0 = $mine[$sid][0]
-            $cwd = [string](Get-ChatField $e0 'Cwd')
-            $cfgDir = [string](Get-ChatField $Ctx 'ClaudeHome')
-            if (-not $cfgDir) { $cfgDir = $script:ChatClaudeHome }
-            # the title as the chat's row has it: what the pass read, else the
-            # transcript's own records, else the registry's name for it. A
-            # phone-made chat Claude has not titled yet goes by the neutral
-            # title its jobs hold (Get-ChatqHeldTitle), never its prompt's
-            # first line: the alert's text crosses the push service.
-            $tx = $null
-            $texts = Get-ChatField $Ctx 'Text'
-            if ($texts) { $tx = $texts[$sid] }
-            $path = if ($tx -and $tx.Path) { [string]$tx.Path } else { Find-ChatOverlayTranscript $cfgDir $cwd $sid }
-            if ($path -and (Test-ChatqSideTranscript $path)) { $m.Settled = $true; continue }
-            $title = $null
-            if ($tx) { foreach ($c in @($tx.CustomTitle, $tx.Sidecar, $tx.AiTitle)) { if ($c) { $title = [string]$c; break } } }
-            if (-not $title -and -not ($tx -and $tx.First) -and $path) {
-                $r = Find-ChatTailRecords $path -Budget 1048576
-                $title = if ($r.CustomTitle) { $r.CustomTitle } elseif ($r.AiTitle) { $r.AiTitle } else { $null }
-            }
-            if (-not $title) { $title = Get-ChatqHeldTitle ([pscustomobject]@{ Provider = 'claude'; Id = $sid; Titled = $null }) }
-            if (-not $title -and $tx -and $tx.First) { $title = [string]$tx.First }
-            if (-not $title) { $title = [string](Get-ChatField $e0 'Name') }
-            $title = if ($title) { Format-ChatTitle $title 60 } else { 'a chat' }
-            # the chat's config dir, $null for the default one - a prompt sent
-            # back to it is queued under that dir (Invoke-ChatqReply)
-            $default = Join-Path $HOME '.claude'
-            $jobHome = if ([string]::Equals($cfgDir.TrimEnd('\', '/'), $default.TrimEnd('\', '/'), [StringComparison]::OrdinalIgnoreCase)) { $null } else { $cfgDir }
-            $m.Settled = $true
-            $m.Last[$ev] = $Now
-            $autoSt = $(if (Get-ChatField $Ctx 'AutoStates') { $Ctx.AutoStates[$sid] } else { $null })
-            $alert = [ordered]@{
-                event = $ev; text = (Get-ChatqLiveAlertText $ev $title $cwd $path $mine[$sid].ToArray() -Auto $autoSt); priority = $(if ($ev -eq 'needs input') { 2 } elseif ($ev -eq 'limited') { 0 } else { 1 })
-                sessionId = $sid; title = $title; cwd = $cwd; path = $path; home = $jobHome
-            }
-            if ($autoJob) { $alert['jobId'] = [string]$autoJob.id }
-            $null = Send-ChatqLiveAlert $alert
-            Write-ChatOverlayLog "phone: $ev alert for $sid ($title) handed to the outbox" -Always
+            # the side-chat check, the title and the words, the outbox
+            $null = Send-ChatqLiveAlertFor $Ctx $sid $ev $mine[$sid].ToArray() $autoJob $m $Now
         }
     }
     catch {
         try { Write-ChatOverlayLog "phone: $($_.Exception.Message)" } catch {}
     }
+}
+
+function Test-ChatqLiveStoppedByHand {
+    # A turn you stopped yourself (Test-ChatStoppedByHand), read from the
+    # chat's transcript: the pass's text for it, else found under its
+    # config dir by the first of $Entries' folder (Update-ChatqLiveAlerts;
+    # the Rust host's live-alert step, Invoke-ChatOverlayActStep)
+    param($Ctx, [string]$Sid, [object[]]$Entries)
+    $texts = Get-ChatField $Ctx 'Text'
+    $tx = if ($texts) { $texts[$Sid] } else { $null }
+    $hp = if ($tx -and $tx.Path) { [string]$tx.Path } else {
+        $hd = [string](Get-ChatField $Ctx 'ClaudeHome'); if (-not $hd) { $hd = $script:ChatClaudeHome }
+        Find-ChatOverlayTranscript $hd ([string](Get-ChatField @($Entries)[0] 'Cwd')) $Sid
+    }
+    return [bool]($hp -and (Test-ChatStoppedByHand (Get-ChatqLastTurn $hp)))
+}
+
+function Send-ChatqLiveAlertFor {
+    <#
+    One live alert past its gates (Update-ChatqLiveAlerts; the Rust host's
+    live-alert step, Invoke-ChatOverlayActStep): 'side' for a side chat,
+    nothing sent; else its title and words worked out, the alert handed to
+    the outbox (Send-ChatqLiveAlert) and logged: 'sent'. $Entries are the
+    chat's registry entries, $AutoJob auto-continue's job for a limited.
+    $Seen, the chat's memory in $Ctx.PhoneSeen when given, is settled at
+    the side check and once the title is known, and its Last[$Event] set
+    to $Now then - where Update-ChatqLiveAlerts always set them.
+    #>
+    param($Ctx, [string]$Sid, [string]$Event, [object[]]$Entries, $AutoJob, [hashtable]$Seen, [datetime]$Now = (Get-Date))
+    $sid = $Sid
+    $ev = $Event
+    $autoJob = $AutoJob
+    $e0 = @($Entries)[0]
+    $cwd = [string](Get-ChatField $e0 'Cwd')
+    $cfgDir = [string](Get-ChatField $Ctx 'ClaudeHome')
+    if (-not $cfgDir) { $cfgDir = $script:ChatClaudeHome }
+    # the title as the chat's row has it: what the pass read, else the
+    # transcript's own records, else the registry's name for it. A
+    # phone-made chat Claude has not titled yet goes by the neutral
+    # title its jobs hold (Get-ChatqHeldTitle), never its prompt's
+    # first line: the alert's text crosses the push service.
+    $tx = $null
+    $texts = Get-ChatField $Ctx 'Text'
+    if ($texts) { $tx = $texts[$sid] }
+    $path = if ($tx -and $tx.Path) { [string]$tx.Path } else { Find-ChatOverlayTranscript $cfgDir $cwd $sid }
+    if ($path -and (Test-ChatqSideTranscript $path)) { if ($Seen) { $Seen.Settled = $true }; return 'side' }
+    $title = $null
+    if ($tx) { foreach ($c in @($tx.CustomTitle, $tx.Sidecar, $tx.AiTitle)) { if ($c) { $title = [string]$c; break } } }
+    if (-not $title -and -not ($tx -and $tx.First) -and $path) {
+        $r = Find-ChatTailRecords $path -Budget 1048576
+        $title = if ($r.CustomTitle) { $r.CustomTitle } elseif ($r.AiTitle) { $r.AiTitle } else { $null }
+    }
+    if (-not $title) { $title = Get-ChatqHeldTitle ([pscustomobject]@{ Provider = 'claude'; Id = $sid; Titled = $null }) }
+    if (-not $title -and $tx -and $tx.First) { $title = [string]$tx.First }
+    if (-not $title) { $title = [string](Get-ChatField $e0 'Name') }
+    $title = if ($title) { Format-ChatTitle $title 60 } else { 'a chat' }
+    # the chat's config dir, $null for the default one - a prompt sent
+    # back to it is queued under that dir (Invoke-ChatqReply)
+    $default = Join-Path $HOME '.claude'
+    $jobHome = if ([string]::Equals($cfgDir.TrimEnd('\', '/'), $default.TrimEnd('\', '/'), [StringComparison]::OrdinalIgnoreCase)) { $null } else { $cfgDir }
+    if ($Seen) { $Seen.Settled = $true; $Seen.Last[$ev] = $Now }
+    $autoSt = $(if (Get-ChatField $Ctx 'AutoStates') { $Ctx.AutoStates[$sid] } else { $null })
+    $alert = [ordered]@{
+        event = $ev; text = (Get-ChatqLiveAlertText $ev $title $cwd $path @($Entries) -Auto $autoSt); priority = $(if ($ev -eq 'needs input') { 2 } elseif ($ev -eq 'limited') { 0 } else { 1 })
+        sessionId = $sid; title = $title; cwd = $cwd; path = $path; home = $jobHome
+    }
+    if ($autoJob) { $alert['jobId'] = [string]$autoJob.id }
+    $null = Send-ChatqLiveAlert $alert
+    Write-ChatOverlayLog "phone: $ev alert for $sid ($title) handed to the outbox" -Always
+    return 'sent'
 }
 
 # Deferred: DEFERRED.md "Answering the reset ask from the phone"
