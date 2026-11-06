@@ -10,10 +10,19 @@ function New-ChatqSeq {
     # files take to copy - and a number counted from the .json alone went to
     # two jobs, which then shared the one prompt file. Read afresh each time,
     # never from a list read earlier: another process may have queued since.
+    # Only open jobs count - the states the lists show - so numbering starts
+    # at #1 again once nothing is open; a done job keeps its old number, and
+    # Find-ChatqJob prefers the open job when two share one. A prompt file
+    # counts while no job's .json claims it (a slot still being filled).
     $max = 0
-    foreach ($j in @(Get-ChatqJobs)) { if ([int]$j.seq -gt $max) { $max = [int]$j.seq } }
+    $claimed = @{}
+    foreach ($j in @(Get-ChatqJobs)) {
+        $pf = [string](Get-ChatField $j 'promptFile')
+        if ($pf) { $claimed[$pf] = $true }
+        if ($j.state -in 'queued', 'running', 'needs-input', 'failed' -and [int]$j.seq -gt $max) { $max = [int]$j.seq }
+    }
     foreach ($f in @(Get-ChildItem -LiteralPath $script:ChatqQueueDir -Filter '#*' -File -EA SilentlyContinue)) {
-        if ($f.Name -match '^#(\d{1,9}) ' -and [int]$Matches[1] -gt $max) { $max = [int]$Matches[1] }
+        if (-not $claimed[$f.Name] -and $f.Name -match '^#(\d{1,9}) ' -and [int]$Matches[1] -gt $max) { $max = [int]$Matches[1] }
     }
     return $max + 1
 }
@@ -175,6 +184,8 @@ function New-ChatqJobSlot {
         # no run of dashes survives into the comment, so no title can close it early
         $safe = $name -replace '-{2,}', '-'
         $file = "#$seq $(Get-ChatqSafeName $name).md"
+        # a done job with this reused number and title keeps its prompt file
+        while (Test-Path -LiteralPath (Join-Path $script:ChatqQueueDir $file)) { $seq++; $file = "#$seq $(Get-ChatqSafeName $name).md" }
         $slot = [pscustomobject]@{
             Seq = $seq; Id = $id; File = $file; Path = (Join-Path $script:ChatqQueueDir $file); Dir = (Join-Path $script:ChatqQueueDir $id)
             Header = "<!-- chatq: prompt for '$safe' ($($Row.Provider)). Everything after this comment is sent as it is when the limit resets. Save and close the tab to queue it; leave it empty to cancel. -->`n`n"

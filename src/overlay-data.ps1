@@ -4618,7 +4618,7 @@ function Invoke-ChatOverlayStep {
              next, tagged with the version and dropped under another
       delete, archive, reload-answer, config, card, auto-on, auto-ask, auto-off,
       auto-notice, crash-on, crash-off, answered-jobs, auto-chip,
-      live-alert, phone-extras, act-look, ask-answer, ask-phone, ask-watch,
+      live-alert, phone-extras, act-look, look-queue, ask-answer, ask-phone, ask-watch,
       startup
              the Rust host's acting verbs and its own acts: -Act's, the step's load having
              the parts they reach (src/overlay-step.ps1 names it
@@ -4629,7 +4629,7 @@ function Invoke-ChatOverlayStep {
     $r = [ordered]@{ v = 1; ok = $false; error = 'bad step input'; w = $null; result = $null }
     $q = Read-ChatqJson $In
     $op = if ($q) { ConvertFrom-ChatqStepText $q.op } else { $null }
-    $acts = 'delete', 'archive', 'reload-answer', 'config', 'auto-on', 'auto-ask', 'auto-off', 'auto-notice', 'crash-on', 'crash-off', 'answered-jobs', 'auto-chip', 'live-alert', 'phone-extras', 'act-look', 'ask-answer', 'ask-phone', 'ask-watch', 'startup'
+    $acts = 'delete', 'archive', 'reload-answer', 'config', 'auto-on', 'auto-ask', 'auto-off', 'auto-notice', 'crash-on', 'crash-off', 'answered-jobs', 'auto-chip', 'live-alert', 'phone-extras', 'act-look', 'look-queue', 'ask-answer', 'ask-phone', 'ask-watch', 'startup'
     if (-not $q -or (Get-ChatqNativeInt $q.v) -ne 1 -or $op -isnot [string] -or ($op -cnotin 'ping', 'look' -and ($op -cnotin $acts -or -not $Act))) {
         Save-ChatqText $Out ($r | ConvertTo-Json -Depth 6); return
     }

@@ -695,21 +695,36 @@ function Invoke-ChatOverlayActStep {
                 usage heads-ups, deduped in data/usage-alerts.json, and the
                 held summary's kick. Done: always
     The Rust host's own acts, on a context of New-ChatOverlayContext's
-    (WantAsk and WantAuto, WantPhone where args.phone), the look's carry
-    data/native/overlay-carry-act.clixml:
-      act-look  Invoke-ChatOverlayActLook. Done: always; request its answer
+    (WantAsk and WantAuto, WantPhone where args.phone):
+      look-queue
+                the two places the Rust host's look writes the job store
+                (native/overlay/collect/src/lookqueue.rs): args.crash, the
+                restart rows the crash continue would continue
+                (Invoke-ChatqCrashContinue), and args.auto, the cut-off
+                rows auto-continue's scan looks at
+                (Update-ChatOverlayAuto -Scan), the first continue it
+                queues said (Show-ChatOverlayAutoQueued); args.procs
+                finds the live chats as the look did. The checks are
+                PowerShell's own, so a candidate the Rust host is wrong
+                about queues nothing. Done: anything queued. request
+                {crash, auto}: how many each queued
+      act-look  Invoke-ChatOverlayActLook - unused since the look moved to
+                Rust (native/overlay/collect/src/host/lookscan.rs); the
+                tests still run it. Done: always; request its answer
       ask-answer
                 your answer to the reset ask (args.answer continue or
                 leave, args.keys, args.source - timer for
-                overlay.askAutoSeconds', logged as the cycle logs it) on the
-                ask the last look found: Complete-ChatqResetAsk, its outcome
+                overlay.askAutoSeconds', logged as the cycle logs it) on
+                args.ask, the ask the Rust host's pass had (Ask::to_step_json;
+                none given, no ask: answered as stale, never an older one):
+                Complete-ChatqResetAsk, its outcome
                 said (AskSaid), and the watcher it asked for watched here
                 (Wait-ChatOverlayAskWatcher), as Update-ChatOverlayAsk
                 watches it. Done: not stale. request {stale, queued,
                 watcher}
       ask-phone the reset ask's phone alert for args.keys, on that ask
-                (Send-ChatqResetAskAlert). Done: sent. request {said}:
-                off, wait or sent
+                (args.ask as for ask-answer; Send-ChatqResetAskAlert).
+                Done: sent. request {said}: off, wait or sent
       ask-watch the watcher the console's answer asked for ($H.AskRequest,
                 args.alive and args.spawned), watched here as ask-answer
                 watches its own. Done: always. request {watcher}
@@ -753,7 +768,7 @@ function Invoke-ChatOverlayActStep {
         Ctx = $ctx; Snap = $null; Events = [System.Collections.Generic.List[object]]::new(); EventBase = 'step'; EventN = 0
         Standalone = $true; Closing = [bool]$A.closing; EventOwner = $null; BalloonKind = ''; BalloonKeys = @()
     }
-    if ($Op -cin 'act-look', 'ask-answer', 'ask-phone', 'ask-watch', 'startup') {
+    if ($Op -cin 'act-look', 'look-queue', 'ask-answer', 'ask-phone', 'ask-watch', 'startup') {
         $ctx = New-ChatOverlayContext -ClaudeHome $ctx.ClaudeHome
         $ctx.WantAsk = $true
         $ctx.WantAuto = $true
@@ -813,9 +828,13 @@ function Invoke-ChatOverlayActStep {
         $request = Invoke-ChatOverlayActLook $H $A
         $done = $true
     }
+    elseif ($Op -ceq 'look-queue') {
+        $request = Invoke-ChatOverlayLookQueue $H $A
+        $done = [bool]($request.crash + $request.auto)
+    }
     elseif ($Op -ceq 'ask-answer') {
         $carry = Import-ChatOverlayStepCarry 'act'
-        $ctx.Ask = if ($carry['AskLast'] -is [hashtable]) { $carry['AskLast']['Ask'] } else { $null }
+        $ctx.Ask = if ($A.ask) { ConvertFrom-ChatOverlayStepAsk $A.ask } else { $null }
         $ctx.AskState = Read-ChatqAskState
         $src = if ($A.source) { [string]$A.source } else { 'overlay' }
         $keys = @(@($A.keys) | Where-Object { $_ } | ForEach-Object { [string]$_ })
@@ -837,8 +856,7 @@ function Invoke-ChatOverlayActStep {
         $request = [ordered]@{ stale = [bool]$ans.Stale; queued = @($ans.Queued).Count; watcher = [string]$up }
     }
     elseif ($Op -ceq 'ask-phone') {
-        $carry = Import-ChatOverlayStepCarry 'act'
-        $ask = if ($carry['AskLast'] -is [hashtable]) { $carry['AskLast']['Ask'] } else { $null }
+        $ask = if ($A.ask) { ConvertFrom-ChatOverlayStepAsk $A.ask } else { $null }
         $said = Send-ChatqResetAskAlert $ctx $ask @(@($A.keys) | Where-Object { $_ } | ForEach-Object { [string]$_ }) -Now (Get-Date)
         $done = $said -eq 'sent'
         $request = [ordered]@{ said = [string]$said }
@@ -889,8 +907,111 @@ function Wait-ChatOverlayAskWatcher {
     }
 }
 
+function ConvertFrom-ChatOverlayStepCutOff {
+    <#
+    One cut-off row as the Rust host sends it (ask::step_row) to the row
+    the cycle's functions take (Get-ChatqCutOffChats, Get-ChatRestartCutOffs):
+    times as dates; a restart's mid, host pid, cause and tasks.
+    #>
+    param($R)
+    $o = [ordered]@{
+        Id = [string]$R.id; Title = [string]$R.title; Group = [string]$R.group
+        At = ConvertTo-ChatqDate $R.at; ResetsAt = ConvertTo-ChatqDate $R.resetsAt
+        Why = [string]$R.why; Path = [string]$R.path; Cwd = [string]$R.cwd
+        LimitUuid = [string]$R.limitUuid
+    }
+    if ([string]$R.why -ceq 'restart') {
+        $o['Mid'] = [string]$R.mid
+        $o['HostPid'] = $(if ($null -ne $R.hostPid) { [int]$R.hostPid } else { 0 })
+        $o['Cause'] = [string]$R.cause
+        $o['Tasks'] = @(@($R.tasks) | Where-Object { $_ } | ForEach-Object { [pscustomobject]@{ Kind = [string]$_.kind; Id = [string]$_.id; Note = [string]$_.note } })
+    }
+    return [pscustomobject]$o
+}
+
+function ConvertFrom-ChatOverlayStepAsk {
+    <#
+    The reset ask as the Rust host sends it (Ask::to_step_json) to the
+    object Get-ChatqResetAsk answers.
+    #>
+    param($A)
+    return [pscustomobject]@{
+        ResetsAt = ConvertTo-ChatqDate $A.resetsAt
+        Items    = @(@($A.items) | Where-Object { $_ } | ForEach-Object { ConvertFrom-ChatOverlayStepCutOff $_ })
+        Keys     = @(@($A.keys) | ForEach-Object { [string]$_ })
+        Count    = [int]$A.count
+        Restart  = [int]$A.restart
+        Cause    = [string]$A.cause
+        Left     = @()
+    }
+}
+
+function Invoke-ChatOverlayLookQueue {
+    <#
+    The look's two writes to the job store, a look-queue step
+    (native/overlay/collect/src/lookqueue.rs picks the candidates): the
+    crash continue on args.crash, and auto-continue's scan with args.auto as
+    its rows, the first continue queued said. The live chats are found as
+    Invoke-ChatOverlayActLook finds them, from args.procs. The checks are
+    the cycle's own, so a candidate that does not pass queues nothing.
+    Returns {queued, crash, auto}: what each queued.
+    #>
+    param($H, $A)
+    $ctx = $H.Ctx
+    $now = Get-Date
+    $procs = @{}
+    foreach ($p in @($A.procs)) {
+        if (-not $p) { continue }
+        $start = ConvertTo-ChatqDate (ConvertFrom-ChatqStepText $p.start)
+        $procs[[int]$p.pid] = [pscustomobject]@{ Id = [int]$p.pid; ProcessName = [string]$p.name; StartTime = $(if ($start) { $start.ToLocalTime() } else { $null }) }
+    }
+    $entries = @(Read-ChatqSessionRegistry (Join-Path $ctx.ClaudeHome 'sessions') @{})
+    $alive = @($entries | Where-Object { $_.SessionId -and (Test-ChatqSessionAlive $_ $procs) })
+    $ctx.Jobs = @(Get-ChatqJobs | Where-Object { $_.state -in 'queued', 'running', 'needs-input' } | ForEach-Object { [pscustomobject]@{ Job = $_; First = '' } })
+    $ctx.JobsSig = 'step'
+    $jobs = @($ctx.Jobs | ForEach-Object { $_.Job })
+    $held = @{}
+    foreach ($e in $alive) {
+        $kind = [string](Get-ChatField $e 'Kind')
+        $ep = [string](Get-ChatField $e 'Entrypoint')
+        if (($kind -and $kind -ne 'interactive') -or ($ep -and $ep -ne 'claude-vscode')) { $held[[string]$e.SessionId] = $true }
+    }
+    $ctx.AskState = Read-ChatqAskState
+    $crashSent = 0
+    $autoSent = 0
+    $crash = @(@($A.crash) | Where-Object { $_ } | ForEach-Object { ConvertFrom-ChatOverlayStepCutOff $_ })
+    if ($crash.Count -and [bool]$ctx.Config.autoContinueCrash) {
+        try { $crashSent = @(Invoke-ChatqCrashContinue $ctx $crash $jobs $now -Held $held).Count }
+        catch { Write-ChatOverlayLog "crash continue: $($_.Exception.Message)" }
+    }
+    $auto = @(@($A.auto) | Where-Object { $_ } | ForEach-Object { ConvertFrom-ChatOverlayStepCutOff $_ })
+    if ($auto.Count) {
+        try {
+            $ctx.CutAt = $now
+            $ctx.CutOff = $auto
+            $ctx.Blocks = try { Get-ChatqBlocks } catch { @{} }
+            if (-not $ctx.Blocks) { $ctx.Blocks = @{} }
+            $eta = Get-ChatqEta $jobs $ctx.Blocks -SendAt @{}
+            if (Update-ChatOverlayAuto $ctx $alive $now $eta -Scan:(Test-ChatqAutoWanted) -Rows $auto) {
+                $autoSent = 1
+                $jobs = @($ctx.Jobs | ForEach-Object { $_.Job })
+                $ctx.Blocks = try { Get-ChatqBlocks } catch { @{} }
+                if (-not $ctx.Blocks) { $ctx.Blocks = @{} }
+                $eta = Get-ChatqEta $jobs $ctx.Blocks -SendAt @{}
+                Update-ChatOverlayAutoStates $ctx $alive $now $eta
+                $ctx.JobsSig = $null
+            }
+        }
+        catch { Write-ChatOverlayLog "auto-continue: $($_.Exception.Message)" }
+    }
+    Show-ChatOverlayAutoQueued $H
+    return [ordered]@{ queued = [bool]($crashSent + $autoSent); crash = $crashSent; auto = $autoSent }
+}
+
 function Invoke-ChatOverlayActLook {
     <#
+    Unused by the Rust host since its look moved into Rust (lookscan.rs,
+    lookqueue.rs); kept for the tests (tests/sections/overlay-act.ps1).
     The Rust host's cut-off look (native/SPEC.md 3.10), an act-look step:
     Invoke-ChatOverlayCycle's look, run as a host's own pass runs it once
     Test-ChatOverlayLookDue says look - the Rust host keeps that cadence -

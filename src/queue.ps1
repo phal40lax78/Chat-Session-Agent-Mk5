@@ -1259,7 +1259,12 @@ function Find-ChatqJob {
     if (-not $Jobs) { $Jobs = @(Get-ChatqJobs) }
     $r = $Ref.Trim().TrimStart('#')
     if (-not $r) { return $null }
-    if (-not $Exact -and $r -match '^\d+$') { return @($Jobs | Where-Object { [int]$_.seq -eq [int]$r }) | Select-Object -First 1 }
+    # a number is reused once nothing is open (New-ChatqSeq): the open job
+    # holding it wins over a done one, then the newest
+    if (-not $Exact -and $r -match '^\d+$') {
+        return @($Jobs | Where-Object { [int]$_.seq -eq [int]$r } |
+            Sort-Object @{ Expression = { $_.state -in 'queued', 'running', 'needs-input', 'failed' }; Descending = $true }, @{ Expression = { [string]$_.id }; Descending = $true }) | Select-Object -First 1
+    }
     # not $exact: names ignore case, and -Exact is a switch
     $whole = @($Jobs | Where-Object { [string]$_.id -eq $r })
     if ($whole.Count -eq 1) { return $whole[0] }

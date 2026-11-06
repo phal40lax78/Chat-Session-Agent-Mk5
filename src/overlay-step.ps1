@@ -13,7 +13,7 @@ param([string]$In, [string]$Out, [int]$Watcher, [int64]$WatcherStart)
 $ProgressPreference = 'SilentlyContinue'
 $env:CHATQ_OVERLAY = '1'
 $stepIn = try { Get-Content -LiteralPath $In -Raw -Encoding UTF8 | ConvertFrom-Json } catch { $null }
-$stepAct = $stepIn -and [string]$stepIn.op -cin 'delete', 'archive', 'reload-answer', 'config', 'auto-on', 'auto-ask', 'auto-off', 'auto-notice', 'crash-on', 'crash-off', 'answered-jobs', 'auto-chip', 'live-alert', 'phone-extras', 'act-look', 'ask-answer', 'ask-phone', 'ask-watch', 'startup'
+$stepAct = $stepIn -and [string]$stepIn.op -cin 'delete', 'archive', 'reload-answer', 'config', 'auto-on', 'auto-ask', 'auto-off', 'auto-notice', 'crash-on', 'crash-off', 'answered-jobs', 'auto-chip', 'live-alert', 'phone-extras', 'act-look', 'look-queue', 'ask-answer', 'ask-phone', 'ask-watch', 'startup'
 $env:CHATQ_ROLE = if ($stepAct) { 'ostep-act' } else { 'ostep' }
 # Windows PowerShell started by a collector a pwsh 7 host started inherits
 # pwsh 7's module path: its own again, as src/ask-hook.ps1 gives itself

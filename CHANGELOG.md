@@ -1,5 +1,57 @@
 # Changelog
 
+## 1.1.2 — Queue numbers start again at #1
+
+- **A job's number counts only the open jobs** - queued, running,
+  needs-input or failed ([New-ChatqSeq](src/commands.ps1)), so once
+  nothing is open the next one is #1 again, not one past every job the
+  queue folder still holds. A done job keeps its old number.
+- **`#n` finds the open job first** ([Find-ChatqJob](src/queue.ps1)):
+  where a done job shares the number, `chatqrm 3` and the rest act on the
+  open one, then the newest.
+- **A done job's prompt file is never taken.** A new job whose number and
+  chat title would name the same `#n <title>.md` takes the next number
+  ([New-ChatqJobSlot](src/commands.ps1)).
+- A failed job left in the queue still counts as open, so the numbers go
+  on from it until it is removed.
+
+## 1.1.1 — The look, delete and archive in Rust
+
+- **The cut-off look needs no PowerShell.** The Rust host scans for
+  chats the limit or a restart cut off on a thread of its own, once a
+  minute as before, and works out the rows, auto-continue's states and
+  the reset ask itself; the `act-look` step is gone, and so is the
+  "look keeps failing" fuse. A scan that runs past 30 s or dies shows
+  `cut off: ...` in the header and the host runs on
+  ([host::lookscan](native/overlay/collect/src/host/lookscan.rs)).
+- **The look's own writes are Rust's.** Answered marks over 8 days old
+  and the restart notes' pruning, the `.shown` marks and the one `ask: N
+  cut-off chat(s) can continue after ...` line with its balloon
+  ([marks](native/overlay/collect/src/marks.rs),
+  [restarts::cutoffs](native/overlay/collect/src/restarts.rs)).
+- **PowerShell starts only to queue.** The crash continue and
+  auto-continue's scan are sent to a `look-queue` step, and only where
+  Rust finds a candidate, never the same set within 5 minutes
+  ([lookqueue](native/overlay/collect/src/lookqueue.rs)). The
+  `auto-continue: ... not queued - ...` lines are logged once a host.
+  The ask's answers (`ask-answer`, `ask-phone`) carry the ask with them.
+- **Delete and archive of a chat run in Rust**
+  ([remove](native/overlay/collect/src/remove/mod.rs)): the files, the
+  index, the tombstone, the open tabs and the reload ask, as the step
+  did. A chat with a prompt queued or running still goes to the step; a
+  delete that errors, panics or runs past its time is listed as
+  unfinished.
+- **Review fixes to the port.** A process table that will not read
+  refuses a delete or archive (an unfinished one) instead of reading as
+  no chat working. The look-queue's 5-minute guard is kept, and the crash
+  rows taken out of the scan stay out, only once the job is queued; one
+  dropped (lane busy or stalled) loses no continue, and a step that
+  failed lets the set go again at the next scan. A scan or a delete past
+  30 s is ended as failed, but no other starts until its thread does. The
+  ask's answers with no ask given answer as stale, never an older one.
+- **Found by a vector:** the crash continue's marker check read `source`
+  with case, where PowerShell's does not (`overlay-lookqueue`).
+
 ## 1.1.0 — Cards and usage asks in Rust
 
 - **A row's card comes at once.** The Rust host reads the transcript's
