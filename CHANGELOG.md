@@ -17,8 +17,8 @@
 - **Character view's lines lean with the visor.** A bent line 14 px and
   up (quest titles, the heads, the speech box) is drawn as its letters'
   outlines through the visor's map, so it shears smoothly as the game's
-  HUD does instead of stepping a pixel at a time; smaller text keeps the
-  crisp steps ([glyphs](native/overlay/src/glyphs.rs),
+  HUD does instead of stepping a pixel at a time; smaller text, as the
+  usage gauges' words, is turned whole to the visor's slope ([glyphs](native/overlay/src/glyphs.rs),
   [visor::bend_text](native/overlay/src/visor.rs)).
 - **A BREACHING... loading screen while Character view starts.** At the
   overlay's start, the stage holds out and shows, bottom centre, a red ring
