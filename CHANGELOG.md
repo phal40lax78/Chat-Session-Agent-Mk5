@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.1.7 — The card's keys blink when clicked
+
+- **The card's keys blink when clicked.** Only a key the chat could not
+  take blinked; a taken one, as F ASK on a gauge's card, did its work
+  with no sign. Every click or key press now blinks the key three times,
+  50 ms out and 50 back; a taken key is lit again after, a refused one
+  stays dim ([App::key_click](native/overlay/src/app/pointer.rs),
+  [App::key_lit](native/overlay/src/app/pointer.rs)).
+
 ## 1.1.6 — Claude chats in tabs, asked
 
 - **Folded Character view's buttons always show.** Folded, Character
@@ -7,6 +16,12 @@
   card or chip already up at the fold stayed over the bar until the next
   restack seconds later. The fold now restacks at once
   ([App::switch_look](native/overlay/src/app/stage.rs)).
+- **The bar's buttons stay after a move to a monitor at another scale.**
+  Unfolding just after a drag to such a monitor moved the window to its
+  new corner at the old look's width first, where it stood mostly on the
+  other monitor: Windows flipped its scale there and back, and the bar,
+  drawn in between, lost its icons on hover. The switch now moves and
+  sizes the window in one go ([App::switch_look](native/overlay/src/app/stage.rs)).
 - **Asks to open Claude chats in tabs.** With
   `claudeCode.preferredLocation` unset in every settings scope (a new
   install), the extension asks at startup to set it to `panel` in your
@@ -26,8 +41,11 @@
   the first snapshot is awaited, and fills in 0.2 s once that and 1.5 s have
   passed. Ring and bar then give way, in the same spot, to a dark chip with
   a red outline and `BREACHING...` in cyan (its dots count), held 0.7 s,
-  then faded, and the stage boots in as it does on show. Not on show, not
-  on unfold, not in Panel view; with Windows' animations off nothing turns
+  then faded, and the stage boots in as it does on show. Its clock starts
+  at the overlay's first show, not the process's start, so a start from
+  PowerShell after a Quit shows it too, however late the host shows the
+  window ([App::stamp_loading](native/overlay/src/app.rs)). Not on a
+  later show, not on unfold, not in Panel view; with Windows' animations off nothing turns
   or fades, and the two phases still follow each other
   ([hud::loading](native/overlay/src/hud.rs),
   [App.loading_at](native/overlay/src/app.rs)).
