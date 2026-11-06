@@ -1145,12 +1145,12 @@ again by the next shell after a reboot. It polls every 15 s, and every 30 s
 while a job runs, so a **Stop** reaches the run it is about. It never keeps
 the PC awake to listen: a reply sent while the PC sleeps waits on ntfy.sh,
 which keeps a message 12 hours, and is read when it wakes - if it is under
-half an hour old then. Later, it would land in a chat that went on without
+an hour old then. Later, it would land in a chat that went on without
 it. `chatqrun -Stop` stops the listening too, until the next alert that can
 be answered.
 
 **Refusals.** A reply to an alert that expired, a reply the phone's clock
-says was sent more than 30 minutes ago - 10 for **Status** and a whole
+says was sent more than an hour ago - 10 for **Status** and a whole
 answer asked again - and the 21st reply to one alert do nothing; the phone
 is told so, at most once per alert every 10 minutes, with no link. The same message posted again runs once. The
 text is 8,000 characters at most (the page stops at about 2,900 bytes).
@@ -2119,6 +2119,11 @@ the same for all but a plain open. Clicked, it:
   is set to `true` in any settings scope - that lock is your choice. Claude
   Code's own **Open in New Tab** still locks the group it starts;
   `"claudeCode.lockEditorGroups": false` in VS Code's settings stops that;
+- asks at startup, while `claudeCode.preferredLocation` is unset in every
+  settings scope, to set it to `panel` in your user settings, so Claude
+  Code's own opens land in tabs too and no chat is held in the side bar.
+  **Not now** asks again next start, **Don't ask again** stops it; a value
+  you set yourself, `sidebar` too, is left alone;
 - brings that window forward with `code -n <folder>`: VS Code raises its own
   window on that folder, or opens one, which shows the chat as it starts.
   `-n` keeps it from reusing an unrelated window. `code` is the one beside
@@ -2300,12 +2305,14 @@ character go on moving while it is open. From the top:
   **Ctrl+Alt+Shift+D** beside them (the chord switches between them from
   anywhere);
 - **Skin**;
-- **Record mode**, in a checkout only. In a console of its own it plays
-  the promo scene's lines and dialog (`design/skippy/demo/promo.json`)
-  on this overlay as it is, with your real chats, settings and skin
-  (`tools/overlay_scene.py --live`). The skin's own lines wait until the
-  scene ends or Ctrl+C there. One line at a time:
-  `py tools/overlay_scene.py --say "text" --mood smug`, then `--end`;
+- **Demo mode**, in a checkout only. In a console of its own it plays
+  the promo scene (`design/skippy/demo/promo.json`) on this overlay as
+  it is, with your real settings and skin (`tools/overlay_scene.py
+  --live`); Ctrl+C there ends it. From a console you can also make the
+  character say anything and trigger what normally comes by itself - a
+  gauge moving, usage running out, a chat finishing - without waiting
+  for it: `py tools/overlay_scene.py --lines on --usage claude 5h 91`,
+  then `--end`. The manual is [docs/overlay-demo.md](docs/overlay-demo.md);
 - **Settings**: Theme, Recent chats and Cut-off chats, **Continue chats a VS Code crash cut off**, and the
   panel's opacity (100 to 50 %) and rows (3 to 20) in steps, and
   **HUD size** (50, 100, 150 or 200 %, default 150), which scales
@@ -2395,7 +2402,9 @@ character is moved with the bend but not bent, and Panel view and the menus
 are flat, and so is the hover card, which stands beside the row as it is
 drawn. A click lands on what is drawn.
 
-The HUD boots in on start and on show, a label that is new or changed
+At start a red ring and loading bar stand at the stage's bottom centre
+until the first data is in (1.5 s at least); a `BREACHING...` chip takes
+their place for a moment, then the HUD boots in. The HUD boots in on start and on show, a label that is new or changed
 decodes out of random glyphs, and a finished job or a new alert tag
 brings a short glitch; none of them plays with Windows' animations off,
 or from a click. The hover card is in the HUD's style, with the HUD's

@@ -2939,7 +2939,7 @@ var ChatqBoard = (function () {
         var p = res && res.payload;
         if (!p) {
             cv.pending = what;
-            cShow('bad', 'Sent, but no answer yet. The PC reads it if it listens within 30 minutes; after that it is dropped.', !!what);
+            cShow('bad', 'Sent, but no answer yet. The PC reads it if it listens within an hour; after that it is dropped.', !!what);
             refreshC();
             return;
         }

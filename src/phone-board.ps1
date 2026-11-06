@@ -33,16 +33,16 @@ $script:ChatqComposeActs = @{
     list = @{ Age = 600; Class = 'look'; Kind = $null }
     status = @{ Age = 600; Class = 'look'; Kind = $null }
     read = @{ Age = 600; Class = 'read'; Kind = 'chat' }
-    send = @{ Age = 1800; Class = 'change'; Kind = 'chat' }
-    continue = @{ Age = 1800; Class = 'change'; Kind = 'chat' }
-    new = @{ Age = 1800; Class = 'change'; Kind = 'folder' }
-    now = @{ Age = 1800; Class = 'change'; Kind = 'job' }
-    skip = @{ Age = 1800; Class = 'change'; Kind = 'job' }
-    stop = @{ Age = 1800; Class = 'change'; Kind = 'job' }
-    retry = @{ Age = 1800; Class = 'change'; Kind = 'job' }
-    allow = @{ Age = 1800; Class = 'change'; Kind = 'job' }
+    send = @{ Age = 3600; Class = 'change'; Kind = 'chat' }
+    continue = @{ Age = 3600; Class = 'change'; Kind = 'chat' }
+    new = @{ Age = 3600; Class = 'change'; Kind = 'folder' }
+    now = @{ Age = 3600; Class = 'change'; Kind = 'job' }
+    skip = @{ Age = 3600; Class = 'change'; Kind = 'job' }
+    stop = @{ Age = 3600; Class = 'change'; Kind = 'job' }
+    retry = @{ Age = 3600; Class = 'change'; Kind = 'job' }
+    allow = @{ Age = 3600; Class = 'change'; Kind = 'job' }
     # an answer to the question a chat waits on (src/ask.ps1)
-    answer = @{ Age = 1800; Class = 'change'; Kind = 'chat' }
+    answer = @{ Age = 3600; Class = 'change'; Kind = 'chat' }
 }
 # how many of each in the last hour: a board is asked every 30 s while the
 # page is up, a list or a status now and then; what changes the queue, and

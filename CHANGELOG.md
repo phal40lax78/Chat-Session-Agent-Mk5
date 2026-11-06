@@ -1,5 +1,98 @@
 # Changelog
 
+## 1.1.6 — Claude chats in tabs, asked
+
+- **Folded Character view's buttons always show.** Folded, Character
+  view takes Panel view's stack, the bar over the card and the chip; a
+  card or chip already up at the fold stayed over the bar until the next
+  restack seconds later. The fold now restacks at once
+  ([App::switch_look](native/overlay/src/app/stage.rs)).
+- **Asks to open Claude chats in tabs.** With
+  `claudeCode.preferredLocation` unset in every settings scope (a new
+  install), the extension asks at startup to set it to `panel` in your
+  user settings: a chat held in the side bar gets a second process when
+  the overlay opens it as a tab. **Not now** asks again next start;
+  **Don't ask again** stops it. Set to anything, `sidebar` too, it is
+  never asked or touched.
+- **Character view's lines lean with the visor.** A bent line 14 px and
+  up (quest titles, the heads, the speech box) is drawn as its letters'
+  outlines through the visor's map, so it shears smoothly as the game's
+  HUD does instead of stepping a pixel at a time; smaller text keeps the
+  crisp steps ([glyphs](native/overlay/src/glyphs.rs),
+  [visor::bend_text](native/overlay/src/visor.rs)).
+- **A BREACHING... loading screen while Character view starts.** At the
+  overlay's start, the stage holds out and shows, bottom centre, a red ring
+  around a turning two-armed disc over a thin red bar. The bar eases toward 90% while
+  the first snapshot is awaited, and fills in 0.2 s once that and 1.5 s have
+  passed. Ring and bar then give way, in the same spot, to a dark chip with
+  a red outline and `BREACHING...` in cyan (its dots count), held 0.7 s,
+  then faded, and the stage boots in as it does on show. Not on show, not
+  on unfold, not in Panel view; with Windows' animations off nothing turns
+  or fades, and the two phases still follow each other
+  ([hud::loading](native/overlay/src/hud.rs),
+  [App.loading_at](native/overlay/src/app.rs)).
+
+## 1.1.5 — The reset ask, startup and the watcher wait in Rust
+
+- **A "leave" on the reset ask, a stale answer, the wait for the watcher
+  and a start with no reply standing run in Rust**
+  ([actions](native/overlay/collect/src/actions.rs): `ask_leave`,
+  `ask_watch`, `startup`). No PowerShell starts for them: the chats you
+  leave are marked answered in `data/auto` as before, the log lines, the
+  balloon and what the host does after are the step's.
+- **A watcher that went away is started again by the host.** The wait
+  that follows an answer to the reset ask (or the console's request) used
+  to hand the step over when a watcher that was up had gone with a job
+  still queued. The host now starts it itself, once, as the step did:
+  the engine is chosen by the same rules chatqd's own restart uses
+  (native `chatqd` if it is there, passed its check and the fuse is not
+  blown; else the PowerShell watcher), and the launch is the step's -
+  the same exe, arguments, hidden window and start in your home folder
+  ([respawn](native/overlay/collect/src/respawn.rs)). Its 10 seconds to
+  come up begin at that start, and `failed` is said in the same balloon.
+- **A phone reply that changes something is taken for an hour, not half
+  an hour** ([ChatqReplyActAgeDefault](src/phone.ps1), the board's
+  [ChatqComposeActs](src/phone-board.ps1)): a reply or a board act sealed
+  on the phone, then held up on the way - the PC asleep, the watcher down,
+  the phone offline - still runs if it arrives within the hour. A look
+  (status, ping, read, board, list) stays at 10 minutes, and no reply
+  outlives its alert's `reply.hours`. The phone page says so.
+- **Still PowerShell, on purpose.** A "continue" (it queues jobs and
+  starts the watcher), the reset ask's own timer answer, a reply standing
+  to keep (`reply.listen` always), and `phone-extras` (the usage
+  heads-ups, their `usage-alerts.json` and the phone sends) stay the
+  step's. The host decides as the job starts, so one that turns out to
+  need the step goes to it
+  ([act::needs_step](native/overlay/collect/src/host/act.rs)).
+- **Where it differs, on purpose.** The ask's carry file is not cleared by
+  a native answer (nothing reads it any more), and the markers are written
+  as the other native files are, not as ConvertTo-Json words them; read
+  back they are the same. A native watcher the host starts is told your
+  Windows locale (name, time and digit separators) as `--culture`, where
+  the step passed its PowerShell's; its `pending.json` is written before
+  the child runs, as chatqd's own restart writes it; and the fuse alert a
+  third failed start would send waits for the next launch from PowerShell,
+  as it does after chatqd's own restart
+  ([DEFERRED](DEFERRED.md): "A watcher's culture read by the host, not the
+  step").
+
+## 1.1.4 — Demo mode, and triggers for what comes by itself
+
+- **Record mode is Demo mode, and triggers what comes by itself.** The
+  menu item is renamed. A demo can now set off what you would otherwise
+  wait for: a gauge moving, the 75 and 90% lines, usage running out, a
+  chat starting, waiting or finishing (QUEST COMPLETE), the reload ask,
+  the weekly report, the morning line. A `patch` laid over the host's
+  overlay.json changes the data, so the overlay answers through its own
+  code; `fire` says one event now; `lines on` lets the skin speak in a
+  scene, every event then said rather than diced. One-shot options:
+  `--usage claude 5h 91`, `--limit claude`, `--chat billing done`,
+  `--fire morning`. The promo now shows only its own chats. The manual is
+  [docs/overlay-demo.md](docs/overlay-demo.md)
+  ([app/demo.rs](native/overlay/src/app/demo.rs), [cue](native/overlay/src/app/cue.rs),
+  `tools/overlay_scene.py`).
+- **Nothing else changes.** With no scene, the overlay runs as before.
+
 ## 1.1.3 — Settings, the chip and the switches in Rust
 
 - **The panel's settings, the chip's reload answer and the switches run

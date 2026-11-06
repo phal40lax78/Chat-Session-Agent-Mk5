@@ -53,12 +53,12 @@ $script:ChatqKeepMode = 'keep'
 # workspace-write
 $script:ChatqSafeSandboxes = @('read-only', 'workspace-write')
 # How long after the phone sealed it a reply to an alert is still taken: ten
-# minutes for a look, half an hour for anything else - the board's own ages
+# minutes for a look, an hour for anything else - the board's own ages
 # (ChatqComposeActs). The alert itself lives reply.hours; a reply that waited
 # on the way - the watcher down, the phone offline and sent on later - would
 # otherwise run hours late into a chat that went on meanwhile.
 $script:ChatqReplyActAge = @{ status = 600; ping = 600; read = 600 }
-$script:ChatqReplyActAgeDefault = 1800
+$script:ChatqReplyActAgeDefault = 3600
 # this process's own throttles: when it last polled, when it last logged a poll
 # that failed or a message with a strange id, when it last saved lastPolledAt
 $script:ChatqReplyPolledAt = $null
