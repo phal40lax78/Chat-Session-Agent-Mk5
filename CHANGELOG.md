@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.1.3 — Settings, the chip and the switches in Rust
+
+- **The panel's settings, the chip's reload answer and the switches run
+  in Rust** ([actions](native/overlay/collect/src/actions.rs)): `config`
+  (the clamps and rounding of opacity, rows and sizes), `reload-answer`,
+  the crash continue's on and off, auto-continue's on, ask and off with
+  its one-time notice, and closing the jobs you answered in the chat. No
+  PowerShell starts for them; the balloons, the log lines and what the
+  host does after are the same as the step's.
+- **The chip's "don't continue" and "continue" still start PowerShell**
+  (`auto-chip`): they take a job and its files away or queue one and start
+  the watcher.
+- **Where it differs, on purpose.** A config.json that will not read,
+  holds a date or is no object is left as it is and the setting is said
+  to have failed, where the step wrote `{}` over it. An opacity of `NaN`
+  is refused. Closing an answered job no longer writes back a job file
+  removed meanwhile.
+- The shared job writer ([jobs::finish_job](native/crates/chatq-core/src/jobs.rs))
+  now serves the failed pick and the answered close alike.
+
 ## 1.1.2 — Queue numbers start again at #1
 
 - **A job's number counts only the open jobs** - queued, running,
