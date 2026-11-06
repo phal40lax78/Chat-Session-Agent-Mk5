@@ -2801,6 +2801,9 @@ function New-ChatOverlayContext {
         # holding the most were; going low for the host to say, whether
         # this time low was said, and when it last was
         MemLow = $null; MemAt = $null; MemTopAt = $null; MemNews = $null; MemSaid = $false; MemToldAt = $null
+        # the percent of the last look, low or not, for the panel's status box
+        # (header.memoryPct)
+        MemPct = $null
         # the programs' bytes by name, each process's with them, and when
         # they were listed, a minute apart at most (Get-ChatOverlayProcessSums);
         # and the leak look (Update-ChatOverlayLeaks): its samples of each
@@ -3265,11 +3268,15 @@ function Invoke-ChatOverlayCycle {
         usage = @($usage); usageText = $usageText; usageWhy = $(if ($Ctx.Config.liveUsage) { $Ctx.LiveWhy } else { $null })
         reload = @($reloads | ForEach-Object {
                 [pscustomobject]@{ pid = [int]$_.pid; window = [string]$_.window; id = [string]$_.id; state = [string]$_.state
-                    say = [string]$_.say; text = [string]$_.text; count = [int]$_.count }
+                    say = [string]$_.say; text = [string]$_.text; count = [int]$_.count
+                    seenAt = (ConvertTo-ChatOverlayMs $Ctx.ReloadSeen["$($_.pid):$($_.id)"]) }
             })
         # a wait the endpoint named, so a restart keeps to it (Restore-ChatOverlayUsage)
         liveHold = $(if ($Ctx.HoldKind -eq 'server' -and $Ctx.HoldUntil -gt $now) { ConvertTo-ChatOverlayMs $Ctx.HoldUntil } else { $null })
         next = $next; watcher = $watch; error = $err; notes = @(); memory = $memory; leaks = @($leaks)
+        # the last look's percent while above 85, whether memory is low (memoryWarn)
+        # or not, and at any level while a leak is active: the panel's status box
+        memoryPct = $(if ($Ctx.WantAsk) { Get-ChatOverlayMemoryPct $Ctx.MemPct @($leaks).Count } else { $null })
         # the reset ask for a renderer to draw: its banner, tray items, menu
         ask = $(if ($Ctx.Ask) {
                 [pscustomobject]@{
@@ -4503,12 +4510,21 @@ function Format-ChatOverlayLeakText {
     return "$(Get-ChatField $Leak 'name') grew $(Get-ChatField $Leak 'grewGB') GB in $([int](Get-ChatField $Leak 'minutes')) min, now $(Get-ChatField $Leak 'nowGB') GB$(if ($p) { " (pid $p)" }) - it may be leaking"
 }
 
+function Get-ChatOverlayMemoryPct {
+    # The header's memoryPct: the last look's percent above 85, or at any
+    # level while a leak is active (the status box then needs it for its ring).
+    param($Pct, [int]$LeakCount)
+    if ($null -ne $Pct -and ($LeakCount -gt 0 -or $Pct -gt 85)) { return [int]$Pct }
+    return $null
+}
+
 function Update-ChatOverlayMemory {
     <#
     Whether Windows' memory runs short, looked at 10 s apart at most: the
     share of the commit limit in use (Get-ChatMemoryCommit). At config
     overlay.memoryWarn percent it is low, and it stays low until under 3
-    less, so a figure on the line does not come and go; 0 is never. While
+    less, so a figure on the line does not come and go; 0 is never (the
+    percent is still read, for MemPct, but nothing is said). While
     low, the programs holding the most are named (Get-ChatMemoryTop), a
     minute apart, from the listing the leak look takes too
     (Get-ChatOverlayProcessSums). -Act, a pass not -Peek: going low is said
@@ -4519,13 +4535,15 @@ function Update-ChatOverlayMemory {
     #>
     param($Ctx, [datetime]$Now = (Get-Date), [switch]$Act)
     $warn = [int]$Ctx.Config.memoryWarn
-    if ($warn -le 0) { $Ctx.MemLow = $null; return $null }
     if ($Ctx.MemAt -is [datetime] -and $Ctx.MemAt -le $Now -and ($Now - $Ctx.MemAt).TotalSeconds -lt 10) { return $Ctx.MemLow }
     $Ctx.MemAt = $Now
     $was = $Ctx.MemLow
     $m = Get-ChatMemoryCommit
-    if (-not $m -or [double]$m.Limit -le 0) { $Ctx.MemLow = $null; return $null }
+    if (-not $m -or [double]$m.Limit -le 0) { $Ctx.MemLow = $null; $Ctx.MemPct = $null; return $null }
     $pct = [int][Math]::Floor(100 * ([double]$m.Limit - [double]$m.Free) / [double]$m.Limit)
+    $Ctx.MemPct = $pct
+    # (a memoryWarn of 0 is never low: only the percent, for the status box, is read)
+    if ($warn -le 0) { $Ctx.MemLow = $null; return $null }
     if ($pct -lt $(if ($was) { $warn - 3 } else { $warn })) {
         if ($Act -and $Ctx.MemSaid) { $Ctx.MemSaid = $false; Write-ChatOverlayLog "memory: back to $pct% used" -Always }
         $Ctx.MemLow = $null

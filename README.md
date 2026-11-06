@@ -2358,9 +2358,18 @@ lock for its next start; the native panel ignores them.
 
 **Character view.** In Character view, the native panel is not a
 panel of tiles but a HUD with no frame: the skin's character in the
-middle - the built-in skin's badge, or your pack's - with alert tags down
-its left (AUTO, `ASK 2`, `RLD 1`, the notes, MUTE) and the panel's bar of
-buttons along its top. Two windows of their own sit at the screen's
+middle - the built-in skin's badge, or your pack's - with no tags round
+it (AUTO, ASK, the notes and MUTE live in the panel, the tray and the
+notes) and the panel's bar of buttons along its top. To the right of the
+bars (or alone, with no gauges) stand status boxes, a
+cut-corner box with an icon and a short text above it, a ring round it
+sweeping clockwise, in the order MEM, RLD, `!`: **memory** when Windows'
+memory is above 85% used (the ring the share used, the text `NN%`, red
+above 90%) or while a program leaks (the icon red, the text `LEAK` at or
+under 85%, the hover card naming the program); a window's **reload ask**
+for the 30 seconds it is up (the ring the time gone, the text the seconds
+left; the box goes when the ring is whole); and **`!`**, a red whole ring
+for a stopped watcher or an error (the hover card says it). Two windows of their own sit at the screen's
 edges, on the monitor the HUD is on, over whatever is there, and let
 clicks through to what is under them; resting on a gauge card or a quest
 brings its hover card, with keys under it; the keys' letters work on the
@@ -2730,7 +2739,7 @@ chatoverlay -Recent 10            # ten chats not open under the rest; 0 for non
 | `hostCheck` | `false` | With the Rust host: a PowerShell checker runs beside it (about 130 MB) and its look is compared with the host's, logged to `data/logs/overlay-check.log`. Read at start. `chatoverlay -HostCheck on` |
 | `stepPowerShell` | none | the full path to a `pwsh.exe` not on the PATH, for the host's one-minute PowerShell steps; without it, pwsh on the PATH or in its standard install, else Windows PowerShell 5.1 |
 | `usageSeconds` | 300 | how often usage is asked while a chat works - Codex's while Codex works (three times that while idle, and for Copilot); 60 at least |
-| `memoryWarn` | 95 | 0–99; the percent of Windows' commit limit in use at which the panel and the tray say memory runs short ([it says so](#the-overlay)); 0 for never |
+| `memoryWarn` | 95 | 0–99; the percent of Windows' commit limit in use at which the panel and the tray say memory runs short ([it says so](#the-overlay)); 0 for never (the status box's percent is still read, and shows above 85) |
 | `leakGB` | 2 | 0–64, parts of a GB too; how much one process grows in 10 minutes before the panel and the tray say it keeps growing, memory low or not ([it says so](#the-overlay)); 0 for never |
 | `restartMB` | 300 (macOS's PowerShell host; the Rust host's, Windows, is 100 unless set) | 0–4096; the overlay's own private MB (after a compaction, for PowerShell's host) at which it starts again, given 50 MB over where the run settled and an hour up, and held 10 minutes at most by something under way ([it says so](#the-overlay)); 0 for never |
 | `askAutoSeconds` | 0 | 0–3600; the cut-off ask left unanswered this many seconds continues the chats by itself ([When the limit is over](#when-the-limit-is-over)); 0 for never |

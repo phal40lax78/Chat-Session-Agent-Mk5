@@ -186,7 +186,7 @@ button:disabled { opacity: .45; cursor: default; }
     --m-fill: var(--card); --m-edge: var(--line); --m-ink: var(--fg);
     --s-fill: #e4ecfb; --s-edge: var(--accent); --s-ink: var(--fg);
     /* the HUD's titles: condensed, the system's own - none loaded */
-    --hud: "Bahnschrift SemiCondensed", Bahnschrift, "Roboto Condensed", "Arial Narrow", system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+    --hud: "Bahnschrift SemiCondensed", Bahnschrift, "Roboto Condensed", sans-serif-condensed, "Arial Narrow", system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
 }
 @media (prefers-color-scheme: dark) {
     :root {
@@ -330,12 +330,14 @@ button:disabled { opacity: .45; cursor: default; }
 .ahead button { min-height: 32px; padding: 2px 10px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: var(--fg); font: inherit; font-size: 13px; }
 .acut { margin: 0; padding: 6px 12px 0; font-size: 12px; color: var(--warn); }
 .abody {
-    max-height: 45vh; overflow-y: auto; padding: 10px 12px 14px; font-size: 15px; line-height: 1.5;
+    max-height: 45vh; overflow-y: auto; padding: 10px 12px 8px; font-size: 15px; line-height: 1.5;
     white-space: pre-wrap; word-break: keep-all; overflow-wrap: anywhere;
     -webkit-mask-image: linear-gradient(to bottom, #000 80%, transparent); mask-image: linear-gradient(to bottom, #000 80%, transparent);
 }
 .answer.full .abody { max-height: none; -webkit-mask-image: none; mask-image: none; }
 .abody p { margin: 0 0 8px; }
+/* no empty band under the last bubble, above the box's foot */
+.abody > :last-child { margin-bottom: 0; }
 .abody .ah { font-weight: 700; }
 .msg > :last-child { margin-bottom: 0; }
 .abody pre { margin: 0 0 8px; padding: 8px 10px; border-radius: 8px; background: var(--soft); overflow-x: auto; white-space: pre; font: 13px/1.45 ui-monospace, "Cascadia Mono", "SF Mono", Consolas, Menlo, monospace; }
@@ -400,6 +402,92 @@ button:disabled { opacity: .45; cursor: default; }
     .akick { color: var(--q-proj); }
     .primary[data-armed="1"] { color: #0a0c10; }
     .bhead { border-bottom-color: rgba(255, 248, 80, .35); }
+}
+/* A chat, as the PC's Character view card (golden card-hud-talk.png): the
+   title the quest's yellow, labels cyan capitals, the boxes square with the
+   bottom-right corner cut, a red outline and a red scroll thumb. Shapes in
+   both looks; the game's colours only in the dark one. */
+.chat { --cut: polygon(0 0, 100% 0, 100% calc(100% - 9px), calc(100% - 9px) 100%, 0 100%); }
+.chat .answer, .chat .ask, .chat textarea, .chat .status, .chat .more button, .chat .ahead button, .chat .astate button { border-radius: 0; clip-path: var(--cut); }
+.chat .ahead .al, .chat .cline, .chat .under { font-family: var(--hud); letter-spacing: .1em; text-transform: uppercase; }
+/* no "Claude's answer" line: the box says whose turn it is, as the PC card */
+.chat .ahead { display: none; }
+/* the whole answer always, no Show all: as many bubbles as the PC sent */
+.chat .abody { max-height: none; -webkit-mask-image: none; mask-image: none; }
+/* the game's phone (design/cp-ui/ref/message/tx_a.jpg): no name over each
+   message - the side says who; "MESSAGES > name" heads the thread */
+.chat .who { display: none; }
+.chat .talk::before {
+    content: "MESSAGES \203A  CLAUDE"; margin: 0 0 10px; padding-bottom: 4px; border-bottom: 2px solid currentColor;
+    align-self: flex-start; font: 400 13px/1.2 var(--hud); font-stretch: condensed; letter-spacing: .06em; color: var(--muted);
+}
+/* the head: the board's quest row for this chat, its box, badge, yellow
+   project line and title - not a button here */
+.chat .qhead { padding: 10px 14px 10px 10px; }
+.chat .qhead .title { font-size: 19px; }
+/* tracker-spec.md section 1: the quest's title is caps with no badge; the
+   badge stands before the objective (here the chat's title) */
+.chat .qline { display: flex; align-items: flex-start; gap: 8px; }
+.chat .qhead .rj { font-size: 13px; letter-spacing: .08em; }
+/* the badge itself: a square, its bottom-left corner cut at 45 degrees (a
+   leg 3/8 of a side) */
+.chat .qb {
+    width: 18px; height: 18px; margin-top: 3px; border: 0; font: 700 13px/18px var(--hud); color: #800000;
+    clip-path: polygon(0 0, 100% 0, 100% 100%, 37.5% 100%, 0 62.5%);
+}
+/* in work: as the PC card heads it (golden card-hud-talk.png) - the
+   yellow outline, empty, no '!' */
+/* an outline is the box in its colour with the row's ground 2px in, both
+   cut alike, so the stroke runs along the cut too */
+.chat .qb[data-sign="work"] { background: #fff850; color: transparent; }
+.chat .qb[data-sign="red"] { background: #fc5951; }
+.chat .qb[data-sign="done"] { background: #64ffb9; }
+.chat .qb[data-sign="dim"], .chat .qb:not([data-sign]) { background: var(--q-dim); }
+.chat .qb:not([data-sign="done"])::before {
+    content: ""; position: absolute; inset: 2px; background: var(--row);
+    clip-path: polygon(0 0, 100% 0, 100% 100%, 40% 100%, 0 60%);
+}
+#cActs [data-act="status"], #cActs [data-act="read"] { display: none; }
+/* a short box: two lines, growing no further */
+.chat .compose { flex: 0 0 auto; min-height: 0; }
+.chat textarea { flex: 0 0 auto; min-height: 0; height: 4.2rem; }
+/* Send as the game's phone keys (CALL, CLOSE: tx_a.jpg): a cyan disc,
+   the name in red capitals beside it, at the right - no block */
+.chat .primary {
+    align-self: flex-end; width: auto; min-height: 44px; padding: 4px 6px; display: inline-flex; align-items: center; gap: 8px;
+    background: transparent; color: var(--bad); clip-path: none; font: 600 16px/1 var(--hud); letter-spacing: .08em; text-transform: uppercase;
+}
+.chat .primary::before {
+    content: "A"; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%;
+    background: #5ef6ff; color: #0a0c10; font: 700 12px/1 var(--hud);
+}
+.chat .primary:disabled { opacity: .45; box-shadow: none; background: transparent; color: var(--bad); }
+/* the game's one face throughout (tracker-spec.md section 7) */
+.chat .talk, .chat textarea, .chat .more button, .chat .primary, .chat .meta { font-family: var(--hud); font-stretch: condensed; }
+.chat .abody { padding-top: 4px; }
+/* the meta line's own 14px margins doubled the 10px gap round it */
+.chat .meta { margin: 0; }
+.chat .mchip { border-radius: 0; }
+.chat .abody { scrollbar-width: thin; }
+/* your prompt and Claude's answer in one box, as the PC card holds the talk;
+   the box goes when all it holds is hidden */
+.chat .talk { display: flex; flex-direction: column; flex: 0 0 auto; padding: 10px 10px 0; border: 1px solid var(--line); background: var(--card); clip-path: var(--cut); }
+.chat .talk:not(:has(> :not([hidden]))) { display: none; }
+.chat .talk > .answer, .chat .talk > .ask { border: 0; background: transparent; clip-path: none; margin: 0 -10px; }
+.chat .talk > .ask { margin: 0 0 10px; padding: 0; }
+@media (prefers-color-scheme: dark) {
+    .chat { --hud-cyan: #5ef6ff; --hud-red: #ff5d54; }
+    .chat .title { color: var(--q-proj); }
+    .chat .kicker, .chat .meta { color: var(--q-dim); }
+    .chat .ahead .al, .chat .cline, .chat .under, .chat .who { color: var(--hud-cyan); }
+    .chat .mchip { background: transparent; border: 1px solid var(--hud-cyan); color: var(--hud-cyan); }
+    .chat .answer, .chat .ask, .chat .talk { border-color: var(--hud-red); background: #0b0b0d; }
+    .chat .talk > .answer, .chat .talk > .ask { background: transparent; }
+    .chat .talk::before { color: var(--hud-cyan); }
+    .chat .ahead button, .chat .more button { border-color: rgba(94, 246, 255, .5); background: transparent; color: var(--hud-cyan); }
+    .chat .abody { scrollbar-color: var(--hud-red) transparent; }
+    .chat textarea { border-color: rgba(255, 93, 84, .6); background: #0b0b0d; }
+    .chat textarea:focus { outline-color: var(--q-proj); }
 }
 </style>
 </head>
@@ -481,13 +569,15 @@ button:disabled { opacity: .45; cursor: default; }
 <section id="chat" class="chat" hidden>
     <button id="cBack" class="ghost back" type="button">&larr; Board</button>
     <p id="cKicker" class="kicker" hidden></p>
-    <h1 id="cTitle" class="title"></h1>
+    <div id="cHead" class="row qhead"><span class="rm"><span id="cProj" class="rj" hidden></span><span class="qline"><span id="cBadge" class="qb" hidden></span><h1 id="cTitle" class="title"></h1></span></span></div>
     <p id="cMeta" class="meta"></p>
     <div class="cline"><span id="cMode" class="mchip"></span><span id="cState"></span></div>
-    <p id="cWho" class="who you" hidden>YOU</p>
-    <p id="cPrompt" class="cprompt msg sent" hidden></p>
-    <div id="cAsk" class="ask" hidden></div>
-    <div id="cAnswer" class="answer" hidden></div>
+    <div class="talk">
+        <p id="cWho" class="who you" hidden>YOU</p>
+        <p id="cPrompt" class="cprompt msg sent" hidden></p>
+        <div id="cAsk" class="ask" hidden></div>
+        <div id="cAnswer" class="answer" hidden></div>
+    </div>
     <label for="cSearch" class="sr">Search folders</label>
     <input id="cSearch" class="search" type="search" placeholder="Search folders" autocomplete="off" hidden>
     <div id="cList" class="blist" hidden></div>
@@ -2775,7 +2865,7 @@ var ChatqBoard = (function () {
             side.appendChild(s);
         });
         row.appendChild(side);
-        row.addEventListener('click', function () { openChat(type, r); });
+        row.addEventListener('click', function () { openChat(type, r, sec); });
         return row;
     }
 
@@ -2798,6 +2888,9 @@ var ChatqBoard = (function () {
         $('cAnswer').textContent = '';
         drawAsk('cAsk', null);
         $('cKicker').hidden = true;
+        $('cBadge').hidden = true;
+        $('cProj').hidden = true;
+        $('cHead').removeAttribute('data-sec');
         $('cPrompt').hidden = true;
         $('cWho').hidden = true;
         $('cSearch').hidden = true;
@@ -2815,12 +2908,23 @@ var ChatqBoard = (function () {
         if (cv.type === 'new') return CDRAFT + 'new:' + cv.folder.n;
         return cv.chat ? CDRAFT + (cv.chat.p || 'claude') + ':' + cv.chat.id8 : '';
     }
-    function openChat(type, row) {
+    function openChat(type, row, sec) {
         var b = bd.b;
         var chat = type === 'queue' ? B.chatOfJob(b, row) : row;
         chatView({ type: type, row: row, chat: chat });
         document.title = (row.t || 'chat') + ' - chatq';
         $('cTitle').textContent = type === 'queue' ? '#' + row.n + ' ' + (row.t || '') : (row.t || '');
+        // headed as its quest row on the board: the badge, the project line
+        if (sec) {
+            var badge = $('cBadge'), sign = B.rowSign(sec);
+            $('cHead').setAttribute('data-sec', sec);
+            badge.setAttribute('data-sign', sign);
+            badge.textContent = sign === 'work' ? '!' : '';
+            badge.hidden = false;
+        }
+        var proj = B.rowView(type, row, Date.now()).proj;
+        $('cProj').textContent = proj || '';
+        $('cProj').hidden = !proj;
         var meta = [];
         if (row.f) meta.push(row.f);
         if (type === 'queue') { if (row.p) meta.push(row.p); }
@@ -2843,7 +2947,11 @@ var ChatqBoard = (function () {
             btn.addEventListener('click', function () { chatAct(a, btn); });
             box.appendChild(btn);
         });
-        box.hidden = !acts.length;
+        // Status and Read the last answer have no buttons here (CSS): the
+        // last answer is asked for as the chat opens, as the PC card shows it
+        var shown = acts.filter(function (a) { return a.act !== 'status' && a.act !== 'read'; });
+        box.hidden = !shown.length;
+        acts.forEach(function (a) { if (a.act === 'read') readChat(a.h); });
         // a message needs a chat to go to: a queue row whose chat the board
         // does not show offers only its job's acts
         var canSend = !!(chat && chat.h && b.compose);

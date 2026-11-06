@@ -588,7 +588,8 @@ function Invoke-ChatOverlayPanelVerb {
                     return $true
                 }
                 $r = Remove-ChatOverlayRow $H $row -Archive:$arc
-                if ($r.Say) { Show-ChatOverlayBalloon $H $r.Say }
+                # a delete is said on the panel alone, no Windows balloon
+                if ($r.Say -and $arc) { Show-ChatOverlayBalloon $H $r.Say }
                 Add-ChatOverlaySaid $H (Get-ChatOverlayDeleteSay ([bool]$r.Done) ([string]$r.Say) -Archive:$arc) $key
                 return $true
             }

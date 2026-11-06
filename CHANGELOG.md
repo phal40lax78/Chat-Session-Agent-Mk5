@@ -1,5 +1,111 @@
 # Changelog
 
+## 1.2.0 — Status boxes, smoother HUD, bars fill on a drop
+
+- **A usage drop fills the bars to the top and back.** When a window's
+  share falls, its bar snaps to the new value, then a cyan fill rises
+  from the new edge to the top (0.4 s), holds (0.3 s) and sinks back
+  onto the edge (0.8 s): the health bar, each stamina line and the
+  RAM's used pips alike. It replaces the 10 % pale block, white sliver
+  and red pip ripple; a bar that rises (a reset) snaps without it
+  ([bars::drop](native/overlay/src/bars.rs)).
+- **Alerts are status boxes, the stage has no tags.** In Character view
+  the tags down the character's left (AUTO, ASK, USAGE, MUTE, NEXT, NOTE,
+  MEMORY, LEAK, `RLD n`, WATCHER, ERROR) are gone, all still in the
+  panel, the tray and the notes; right of the bars (or at the window's
+  left with no gauges: the window now shows for the boxes alone) stand
+  cut-corner boxes with an icon, a short text above it and a ring round
+  it sweeping clockwise, in the order MEM, RLD, `!`. MEM shows above 85%
+  used (the ring the percent, the text `NN%`, red above 90%), or while a
+  program leaks: its icon red, the text `LEAK` at or under 85% (the ring
+  empty when the percent is unknown), and a hover card naming the
+  leaking programs. RLD is the first reload ask for its 30 s (the ring
+  the time gone, the text the seconds left, the box gone at a whole
+  turn). `!` is a watcher or an error note: a whole red ring, a red `!`,
+  no text, a hover card with the note. The memory note and the tray's
+  balloon still come at
+  `memoryWarn` (95). The snapshot's header gains `memoryPct` (the last
+  look's percent while above 85, or at any level while a leak is
+  active; read even when `memoryWarn` is 0, which still means no note,
+  no balloon and no top-programs listing) and each `reload` item `seenAt` (epoch
+  ms), in both collectors
+  ([hud.status_boxes](native/overlay/src/hud.rs),
+  [Update-ChatOverlayMemory](src/overlay-data.ps1),
+  [memory.update_memory](native/overlay/collect/src/memory.rs),
+  [reloads.reload_json_seen](native/overlay/collect/src/reloads.rs)).
+- **A delete says so on the panel only.** Deleting a chat no longer
+  pops a Windows tray balloon; its row's said marker tells the result,
+  a warning when kept. Archive keeps its balloon
+  ([remove.answer](native/overlay/collect/src/remove/mod.rs),
+  [Invoke-ChatOverlayPanelVerb](src/overlay-host.ps1),
+  [Invoke-ChatOverlayDeleteChip](src/overlay-windows.ps1)).
+- **Character view shows no tray balloons.** While the HUD is up,
+  every Windows tray balloon - the host's and the panel's own - is
+  dropped (logged as `ui: balloon <kind> (character view, dropped)`);
+  panel view still shows them
+  ([App::show_balloon](native/overlay/src/app.rs)).
+- **Korean titles bend with the visor.** A line with a letter the HUD
+  face lacks (Hangul, kana, Chinese, an arrow) fell back to text lifted
+  in whole-pixel steps instead of following the visor's curve. Such a
+  letter now takes its outline from the first of Malgun Gothic, Yu Gothic,
+  Microsoft YaHei and Segoe UI Symbol that has it; invisible marks
+  (variation selectors, joiners) draw nothing. Emoji still step
+  ([glyphs.letters](native/overlay/src/glyphs.rs)).
+
+## 1.1.10 — The phone's chat view in Character view's look
+
+- **The phone's chat view looks like the PC card in Character view.**
+  The chat is headed as its quest row on the board: the project line in
+  yellow capitals, then the title behind the tracker's badge, cut at its
+  bottom-left corner (an empty yellow outline while it works). Your
+  prompt and Claude's answer share one red-outlined box headed
+  `MESSAGES › CLAUDE`, as the game's phone does: no name over each
+  message, the side says who sent it. Boxes are square with a cut
+  corner, labels condensed capitals in cyan, the text in the HUD face
+  (Bahnschrift, else the phone's condensed sans). Send is a key as the
+  game phone's CALL and CLOSE: a cyan disc, its name in red capitals
+  ([docs/reply.html](docs/reply.html)).
+- **The whole answer shows, asked for as the chat opens.** Show all,
+  Copy, Status and Read the last answer are gone from the chat view;
+  opening a Claude chat asks the PC for its last answer at once
+  ([openChat](docs/reply.html)), and the answer is never cut to part of
+  the screen. The prompt box is two lines tall.
+
+## 1.1.9 — Demo mode is easier to stop
+
+- **Demo mode is easier to stop.** Its console takes keys: Space pauses
+  and resumes, R plays the scene again, Q or Esc ends it. Closing the
+  console now ends the scene too; before, the box, mood and patches
+  stayed and the skin stayed quiet until `--end`. While a scene is on,
+  the tray's Demo mode item reads End demo and ends it, the console's
+  director stopping with it
+  ([Director.keys_tick](tools/overlay_scene.py),
+  [end_on_close](tools/overlay_scene.py),
+  [App::demo_end](native/overlay/src/app.rs)).
+
+## 1.1.8 — Smoother animations
+
+- **Character view no longer drops frames.** Each HUD redraw took about
+  290 ms: every prim counted as changed, so every window was painted
+  whole again, and every bent text was cut into its letters' outlines
+  anew. Slint's image never compares equal, not even two empty ones, so
+  a prim never equalled itself; prims now compare field by field
+  ([scene.same](native/overlay/src/scene.rs)), and each window keeps its
+  last bend and bends again only what changed
+  ([visor.WarpCache](native/overlay/src/visor.rs)). A redraw now takes
+  about 2 ms.
+- **The view switch fades on Slint's own frame clock.** The cross-fade
+  between Panel and Character view no longer redraws the window from a
+  16 ms timer: both looks are drawn once and the scene fades them
+  ([fade.tagged](native/overlay/src/fade.rs),
+  [App::fx_start](native/overlay/src/app/stage.rs)).
+- **The panel's log times the UI thread.** A call into the panel that
+  takes 50 ms or more is a `ui slow:` line, with where it was made; once
+  a minute a `ui` line gives the time taken, the slow calls and the five
+  callers that took the most, each with its longest wait between ticks
+  ([uitime](native/overlay/src/uitime.rs)), in
+  `logs/overlay-panel.log` in the data folder.
+
 ## 1.1.7 — The card's keys blink when clicked
 
 - **The card's keys blink when clicked.** Only a key the chat could not

@@ -1930,7 +1930,6 @@ function Invoke-ChatOverlayDeleteChip {
         Reset-ChatOverlayDeleteArm $H
         $r = Remove-ChatOverlayRow $H $Row
         Hide-ChatOverlayChip $H
-        if ($r.Say) { Show-ChatOverlayBalloon $H $r.Say }
         Set-ChatOverlayOpenSay $H (Get-ChatOverlayDeleteSay ([bool]$r.Done) ([string]$r.Say)) $key
     }
     catch {
