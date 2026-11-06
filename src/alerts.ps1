@@ -238,6 +238,7 @@ function Send-ChatqAlert {
     $cfg = Get-ChatqConfig
     $present = Test-ChatqUserPresent $cfg
     $toastOn = -not ($cfg.PSObject.Properties['toast'] -and $cfg.toast -eq $false)
+    if ($toastOn -and (Test-ChatqCharacterView)) { $toastOn = $false; $script:ChatqAlertReport.Add('toast: character view') }
     if ($toastOn) {
         try { Show-ChatqToast $title $(if ($ToastText) { $look.ToastBody } else { $look.Body }); $script:ChatqAlertReport.Add('toast: shown') }
         catch { $script:ChatqAlertReport.Add("toast: $($_.Exception.Message)") }
@@ -462,6 +463,17 @@ function Invoke-ChatqAlertCommand {
         return $null
     }
     catch { return "command: $($_.Exception.Message)" }
+}
+
+function Test-ChatqCharacterView {
+    # The overlay's Character view is up: its overlay-ui.json says hud and
+    # was written in the last 10 s (it writes every 2 s; an older one is a
+    # panel gone). That view shows no Windows popups (App::show_balloon).
+    if ($script:ChatqCharacterViewSeam) { return [bool](& $script:ChatqCharacterViewSeam) }   # tests
+    $u = Read-ChatqJson (Join-Path $script:ChatqData 'overlay-ui.json')
+    if (-not $u -or -not $u.PSObject.Properties['hud'] -or $u.hud -ne $true) { return $false }
+    $now = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+    return ($now - [int64]$u.at) -lt 10000
 }
 
 function Show-ChatqToast {

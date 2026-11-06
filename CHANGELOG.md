@@ -1,10 +1,36 @@
 # Changelog
 
+## 1.2.1 — OPEN blinks, no toasts in Character view, slower RAM drop
+
+- **OPEN blinks when clicked, the quest row no longer does.** Opening a
+  chat holds the overlay about half a second, longer than a key's whole
+  blink, so OPEN's blink was over before it was drawn and only the quest
+  row's longer blink showed. A key's blink now runs from its first frame
+  and at most a step a frame
+  ([App::key_catch_up](native/overlay/src/app/pointer.rs)); the quest
+  row's blink on an open is gone, and a click on the card blinks OPEN as
+  the key does ([App::card_hit](native/overlay/src/app/pointer.rs)).
+- **ARCHIVE and DELETE blink after their ring.** Held to the end, the
+  row is sent away at once as before, but the card stays for the key's
+  blink, taking no more clicks, and goes after it
+  ([App::key_click](native/overlay/src/app/pointer.rs)).
+- **Character view shows no alert toasts either.** A chat's done or
+  needs-input alert popped a Windows toast even with the HUD up, past
+  1.2.0's balloon drop. While Character view shows (overlay-ui.json's new
+  `hud`, written in the last 10 s) the toast is skipped, the phone and
+  your command still go; panel view keeps it
+  ([Test-ChatqCharacterView](src/alerts.ps1), [App::write_ui](native/overlay/src/app.rs)).
+- **The RAM's drop plays four times slower, each pip emptying top
+  down.** The health and stamina keep their 1.1 s; the RAM's fill holds
+  1.2 s and sinks over 3.2 s, and the pip it is leaving loses its cyan
+  from the top, so the pips can be seen going one by one
+  ([bars::RAM_SLOW](native/overlay/src/bars.rs)).
+
 ## 1.2.0 — Status boxes, smoother HUD, bars fill on a drop
 
 - **A usage drop fills the bars to the top and back.** When a window's
-  share falls, its bar snaps to the new value, then a cyan fill rises
-  from the new edge to the top (0.4 s), holds (0.3 s) and sinks back
+  share falls, its bar snaps to the new value and a cyan fill stands
+  from the new edge to the top at once, holds (0.3 s) and sinks back
   onto the edge (0.8 s): the health bar, each stamina line and the
   RAM's used pips alike. It replaces the 10 % pale block, white sliver
   and red pip ripple; a bar that rises (a reset) snaps without it
@@ -117,6 +143,12 @@
 
 ## 1.1.6 — Claude chats in tabs, asked
 
+- **Character view's buttons show on hover.** The bar of buttons over
+  the character was always up; it now shows only while the pointer is
+  on the character, on the bar or between them, or while the menu is
+  open. Panel view's bar is unchanged
+  ([App::hud_bar_check](native/overlay/src/app/pointer.rs),
+  [App::bar_on](native/overlay/src/app/stage.rs)).
 - **Folded Character view's buttons always show.** Folded, Character
   view takes Panel view's stack, the bar over the card and the chip; a
   card or chip already up at the fold stayed over the bar until the next
@@ -142,7 +174,9 @@
   usage gauges' words, is turned whole to the visor's slope ([glyphs](native/overlay/src/glyphs.rs),
   [visor::bend_text](native/overlay/src/visor.rs)).
 - **A BREACHING... loading screen while Character view starts.** At the
-  overlay's start, the stage holds out and shows, bottom centre, a red ring
+  overlay's start, the stage holds out and the bottom centre of the screen
+  the overlay is on (its work area, a window of its own, clear of the
+  character and never cut by it) shows a red ring
   around a turning two-armed disc over a thin red bar. The bar eases toward 90% while
   the first snapshot is awaited, and fills in 0.2 s once that and 1.5 s have
   passed. Ring and bar then give way, in the same spot, to a dark chip with
@@ -154,6 +188,7 @@
   later show, not on unfold, not in Panel view; with Windows' animations off nothing turns
   or fades, and the two phases still follow each other
   ([hud::loading](native/overlay/src/hud.rs),
+  [hud::loading_screen](native/overlay/src/hud.rs),
   [App.loading_at](native/overlay/src/app.rs)).
 
 ## 1.1.5 — The reset ask, startup and the watcher wait in Rust

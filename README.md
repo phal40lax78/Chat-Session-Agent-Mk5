@@ -2411,8 +2411,8 @@ character is moved with the bend but not bent, and Panel view and the menus
 are flat, and so is the hover card, which stands beside the row as it is
 drawn. A click lands on what is drawn.
 
-At start a red ring and loading bar stand at the stage's bottom centre
-until the first data is in (1.5 s at least); a `BREACHING...` chip takes
+At start a red ring and loading bar stand at the bottom centre of the
+screen the overlay is on until the first data is in (1.5 s at least); a `BREACHING...` chip takes
 their place for a moment, then the HUD boots in. The HUD boots in on start and on show, a label that is new or changed
 decodes out of random glyphs, and a finished job or a new alert tag
 brings a short glitch; none of them plays with Windows' animations off,
