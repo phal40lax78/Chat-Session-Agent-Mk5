@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.2.2 — The phone's alert page in Character view's look
+
+- **An alert opened from a push looks like the chat view.** 1.1.10 gave
+  the look to the chat view alone; the page a push opens kept the green
+  event pill and round boxes. It is now headed as a quest row (the event
+  the yellow line, the badge done green, working yellow, waiting red),
+  Claude's answer sits in the red box headed `MESSAGES › CLAUDE`, the
+  boxes are square with a cut corner, and Send is the cyan key. As in the
+  chat view, the answer shows whole, with no Show all or Copy
+  ([docs/reply.html](docs/reply.html)).
+
 ## 1.2.1 — OPEN blinks, no toasts in Character view, slower RAM drop
 
 - **OPEN blinks when clicked, the quest row no longer does.** Opening a

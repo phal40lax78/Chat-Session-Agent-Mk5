@@ -492,10 +492,12 @@ button:disabled { opacity: .45; cursor: default; }
 </style>
 </head>
 <body>
-<main id="app" class="app" hidden>
+<!-- the alert: in the chat view's look (class chat), headed as a quest
+     row - the event the yellow line, the badge its sign -->
+<main id="app" class="app chat" hidden>
     <header class="top">
-        <div class="line1"><span id="ev" class="chip"></span><span id="meta" class="meta"></span></div>
-        <h1 id="title" class="title"></h1>
+        <div id="head" class="row qhead"><span class="rm"><span id="ev" class="rj"></span><span class="qline"><span id="badge" class="qb"></span><h1 id="title" class="title"></h1></span></span></div>
+        <p id="meta" class="meta"></p>
         <p id="usage" class="meta usage" hidden></p>
     </header>
     <!-- a permission request: the call as the card says, opened on this phone -->
@@ -507,8 +509,10 @@ button:disabled { opacity: .45; cursor: default; }
         <p id="permitBody" class="about"></p>
         <p id="permitFine" class="fine"></p>
     </section>
-    <div id="ask" class="ask" hidden></div>
-    <div id="answer" class="answer" hidden></div>
+    <div class="talk">
+        <div id="ask" class="ask" hidden></div>
+        <div id="answer" class="answer" hidden></div>
+    </div>
     <div id="compose" class="compose">
         <label for="text" class="sr">Message to the chat</label>
         <textarea id="text" autofocus rows="5" autocapitalize="sentences" autocomplete="off"></textarea>
@@ -2259,6 +2263,13 @@ var ChatqBoard = (function () {
         var ev = $('ev');
         ev.textContent = f.event || 'alert';
         ev.setAttribute('data-ev', f.event);
+        // the badge as a board row's: working yellow, waiting on you red,
+        // done green, the rest dim
+        var e = f.event, sign = e === 'started' ? 'work' : e === 'done' ? 'done'
+            : /^(needs input|permission|failed|limited|overloaded)$/.test(e) ? 'red' : 'dim';
+        $('badge').setAttribute('data-sign', sign);
+        $('badge').textContent = sign === 'work' ? '!' : '';
+        $('head').setAttribute('data-sec', { work: 'working', red: 'waiting', done: 'recent', dim: 'idle' }[sign]);
         var meta = [];
         if (f.provider) meta.push(f.provider);
         if (f.job === 'live') meta.push('a chat you run');
