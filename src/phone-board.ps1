@@ -415,7 +415,10 @@ function Invoke-ChatqCompose {
             if ($row.Provider -eq 'claude') {
                 try { $held = [bool]@(Get-ChatqLiveSessions $job.home -RegistryOnly | Where-Object { $_.SessionId -eq $job.sessionId -and $_.Status -eq 'waiting' }) } catch {}
             }
-            if ($held) { $say = "queued #$($job.seq) - it goes once $($job.title) is free: it waits on a prompt at the PC$($made.Note)" }
+            if ($held) {
+                $say = "queued #$($job.seq) - it goes once $($job.title) is free: it waits on a prompt at the PC$($made.Note)"
+                if (Set-ChatqBehindAsk $job) { $say = "queued #$($job.seq) as a new prompt, not as the answer - once the question is answered at the PC, it asks before sending$($made.Note)" }
+            }
             elseif ($run) { $say += " - it goes after #$($run.seq), running now" }
             if ($ni) { $say += " - #$($ni.seq) still needs input" }
         }

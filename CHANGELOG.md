@@ -1,5 +1,33 @@
 # Changelog
 
+## 1.2.3 — Questions answered from the phone by default, no stale plan rows
+
+- **Answering Claude's questions from the phone is on by default.** It
+  was off unless `chatnotify -Ask on`, so a reply typed on the phone as
+  the answer went in as a prompt instead. Now `ask.on` counts as on
+  unless switched off, and the watcher installs the `chatq-ask` plugin as
+  it starts, or updates it when it is an older chatq's
+  ([Sync-ChatqAskHook](src/ask.ps1)). Reload a VS Code window for the
+  chats open in it. `chatnotify -Ask off` still turns it off; it stays
+  the way out when Claude Code's hook behaviour, undocumented for this
+  tool, changes.
+- **A queued plan-mode run ends `done`, not `plan ready - approve it in
+  VS Code`.** A `-p` run gets no `ExitPlanMode` (nor `AskUserQuestion`),
+  so there never was a plan to approve: the run had replied. Parked on
+  needs-input, its row stayed on the overlay until something was typed
+  into a chat that might not even be open - 6 h 40 min, once
+  ([Get-ChatqClaudeOutcome](src/queue.ps1)).
+- **A phone prompt sent behind a question asks before it goes.** Typed
+  while the chat waited on a question at the PC, it could only run once
+  the PC had answered, and then went in as a new turn on top of that
+  answer. Such a prompt is now marked ([Set-ChatqBehindAsk](src/ask.ps1))
+  and, once the chat is free, parked on needs-input: `the question it was
+  sent behind was answered at the PC - send it still?`. Continue sends it
+  whole, never as "continue" ([Reset-ChatqJob](src/commands.ps1));
+  anything typed in the chat skips it. The phone's reply says so, and the
+  page's box reads `A new prompt - not the answer`
+  ([docs/reply.html](docs/reply.html)).
+
 ## 1.2.2 — The phone's alert page in Character view's look
 
 - **An alert opened from a push looks like the chat view.** 1.1.10 gave

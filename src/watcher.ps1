@@ -800,6 +800,21 @@ function Invoke-ChatqJob {
     # during the checks above - its prompt and files went with it
     $again = Find-ChatqJob $Job.id -Exact
     if (-not $again -or $again.state -ne 'queued') { return }
+    # A phone prompt sent while the chat waited on a question (behindAsk,
+    # Set-ChatqBehindAsk): the chat is free now, so the PC answered or
+    # dismissed that question, and the text - likely meant as its answer -
+    # would go in as a new turn on top. Asked first: a retry sends it in full
+    # (Reset-ChatqJob reads result.behindAsk), anything typed in the chat
+    # skips it (Close-ChatqAnsweredJobs).
+    if (Get-ChatField $Job 'behindAsk') {
+        $why = 'the question it was sent behind was answered at the PC - send it still?'
+        Set-ChatqProp $Job 'behindAsk' $null
+        if (Complete-ChatqJob $Job 'needs-input' ([pscustomobject]@{ kind = 'needs-input'; reason = $why; behindAsk = $true }) $why -Existing) {
+            [void](Send-ChatqAlert 'needs input' "$($Job.title) $($script:ChatqDot) $why" 2 -Job $Job)
+            Write-ChatqWatchLog "#$($Job.seq) needs input: $why"
+        }
+        return
+    }
     # A "continue" goes alone: the files went with the prompt the first time.
     $files = @()
     if ($sendsContinue) { $prompt = $script:ChatqContinueText }
@@ -1340,6 +1355,10 @@ function Invoke-ChatqWatchLoop {
         Write-ChatqWatchLog "watcher $PID started ($script:ChatVersion)"
         if (Restore-ChatqWatchState $W) { Write-ChatqWatchLog 'carrying on from the watcher before it' }
         Repair-ChatqInterrupted
+        # answers to questions from the phone are on by default: the hook
+        # installed or updated, at most one claude plugin pass per version
+        $hookSaid = Sync-ChatqAskHook
+        if ($hookSaid) { Write-ChatqWatchLog $hookSaid }
         $wakeSeen = $null
         $replyWasOpen = $false
         $listening = $false

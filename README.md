@@ -985,7 +985,7 @@ still works and does the same.
 | `-QuietHours 00:00-07:00\|off` `-Urgent failed, 'needs input'` | [quiet hours](#quiet-hours), and what still comes through; `-Urgent none` for nothing |
 | `-Say 'needs input', failed` `-SayLanguage auto\|en\|ko\|<code>` | [read aloud](#read-aloud) on the phone, through Join; `-Say none` for nothing |
 | `-Permit on\|off` `-PermitWait <min>` `-PermitTools <names>` | [approve a queued run's tool call from the phone](#approve-a-tool-call-from-the-phone); off by default, 10 minutes to answer (1-25), `default` for the usual tools |
-| `-Ask on\|off` `-AskWait <min>` `-Manual` | [answer Claude's questions from the phone](#answer-claudes-questions-from-the-phone) in a chat you run yourself; off by default, held for the phone 240 minutes (5-720). `on` adds the plugin `chatq-ask` to Claude Code; `-Manual` prints the hook for your settings instead |
+| `-Ask on\|off` `-AskWait <min>` `-Manual` | [answer Claude's questions from the phone](#answer-claudes-questions-from-the-phone) in a chat you run yourself; on by default (the watcher adds the plugin `chatq-ask` to Claude Code as it starts), held for the phone 240 minutes (5-720). `off` removes the plugin; `-Manual` prints the hook for your settings instead |
 | `-FullText on\|off` | [Claude's whole answer](#the-whole-answer) on the page of a `done`, `needs input` or `failed` alert; on by default |
 | `-Compose on\|off` | [the board](#the-board-any-chat-from-the-phone): the phone may queue to any chat, act on the queue and start new chats; on by default |
 | `-Listen alerts\|always` | when the PC reads the phone: while an alert is out (the default), or all the time while a phone is paired |
@@ -1007,7 +1007,7 @@ A few settings are only in `data/config.json`:
 | `permit.waitMinutes` | `10` | 1-25; then the call is denied (`-PermitWait`) |
 | `permit.tools` | `Bash`, `PowerShell`, `Edit`, `Write`, `MultiEdit`, `NotebookEdit`, `WebFetch` | what the phone may approve; `mcp__server__*` for an MCP server's tools (`-PermitTools`) |
 | `permit.maxPerRun` | `10` | how many calls one run may ask about |
-| `ask.on` | `false` | the phone may answer Claude's questions in a chat you run yourself (`-Ask`) |
+| `ask.on` | `true` | the phone may answer Claude's questions in a chat you run yourself (`-Ask`) |
 | `ask.waitMinutes` | `240` | 5-720; how long the hook holds a question for the phone - the dialog stays open either way (`-AskWait`) |
 | `ask.maxOpen` | `5` | 1-20; questions held for the phone at once, one hidden PowerShell each (about 130 MB) |
 | `reply.fullMax` | `30000` | the characters of a whole answer sent at most (2000 to 200000); over it the start is left out |
@@ -1369,7 +1369,7 @@ run on this PC. So:
 with approval `never`, so a Codex job never asks mid-run (FUTURE_WORK.md has
 the two ways it could) - in a mode that prompts at all: `default`, `manual`,
 `acceptEdits` or `auto`. `dontAsk` and `bypassPermissions` never prompt,
-and a `plan` run still ends `plan ready - approve it in VS Code`. Replies
+and a `plan` run has no plan card to ask about: it ends `done`. Replies
 must be on, a phone paired, and Join, ntfy over https or a command given
 the link (`-CommandLinks on`) there to carry it. The phone is asked even while you are at the PC: a queued run has no
 window to ask in, and the toast says so. Anything else, and the run denies
@@ -1416,10 +1416,13 @@ transcript, as the overlay already does:
   waiting, and only while you are away. The board shows the question
   whenever you look.
 
-**Answering it** is off by default. `chatnotify -Ask on`, or **Answer
-Claude's questions from the phone** under Replies in the setup window,
-needs replies on, a phone paired, and Join, ntfy over https or a command
-given the link (`-CommandLinks on`) to carry it:
+**Answering it** is on by default (since 1.2.3; `chatnotify -Ask off`, or
+**Answer Claude's questions from the phone** under Replies in the setup
+window, turns it off). It needs replies on, a phone paired, and Join, ntfy
+over https or a command given the link (`-CommandLinks on`) to carry it.
+Answer in the question's card, not in the Send box below it: that box
+queues a new prompt, and one sent behind a question asks again before it
+goes, once the PC has answered. How it works:
 1. chatq installs a small Claude Code hook, as the plugin `chatq-ask`,
    through Claude Code's own CLI (`claude plugin marketplace add`, `claude
    plugin install`). It never edits your Claude `settings.json`. It goes in
@@ -1453,9 +1456,9 @@ given the link (`-CommandLinks on`) to carry it:
   could use the key.
 - **Not answerable, only shown,** and the card says why (`Answer it at the
   PC - ...`):
-  - A question asked before the hook was loaded in that chat. After
-    `-Ask on`, new chats have it; reload a VS Code window for the chats
-    already open in it.
+  - A question asked before the hook was loaded in that chat. Once the
+    watcher has installed it (or after `-Ask on`), new chats have it;
+    reload a VS Code window for the chats already open in it.
   - A terminal chat (`claude` in a console): `Answer it in the terminal.`,
     for now. The hook has not been checked against the terminal's own prompt.
   - A Claude Code older than 2.1.283, or too many questions on the phone

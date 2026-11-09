@@ -641,8 +641,10 @@ function Reset-ChatqJob {
     # the same words would read as the prompt landed, and it never would
     $from = Get-ChatField $Job 'startedAt'
     if (-not $from) { $from = Get-ChatField $Job 'endedAt' }
-    $landed = $Job.state -in 'needs-input', 'done' -or $Job.retryAs -eq 'continue' -or
-    (Test-ChatqPromptLanded $Job.path ([string](Read-ChatqPrompt $Job)) $from $Job.provider)
+    # parked behind a question it never went in (Invoke-ChatqJob, behindAsk)
+    $parked = [bool](Get-ChatField (Get-ChatField $Job 'result') 'behindAsk')
+    $landed = -not $parked -and ($Job.state -in 'needs-input', 'done' -or $Job.retryAs -eq 'continue' -or
+        (Test-ChatqPromptLanded $Job.path ([string](Read-ChatqPrompt $Job)) $from $Job.provider))
     Set-ChatqProp $Job 'retryAs' $(if ($landed) { 'continue' } else { 'full' })
     # asked for by you: sent even if the chat has moved on since
     Set-ChatqProp $Job 'autoContinue' $false

@@ -2236,7 +2236,10 @@ function Invoke-ChatqReply {
                 $held = $false
                 try { $held = [bool]@(Get-ChatqLiveSessions $new.home -RegistryOnly | Where-Object { $_.SessionId -eq $new.sessionId -and $_.Status -eq 'waiting' }) }
                 catch {}
-                if ($held) { $say = "queued #$($new.seq) - it goes once $($new.title) is free: it waits on a prompt at the PC$note" }
+                if ($held) {
+                    $say = "queued #$($new.seq) - it goes once $($new.title) is free: it waits on a prompt at the PC$note"
+                    if (Set-ChatqBehindAsk $new) { $say = "queued #$($new.seq) as a new prompt, not as the answer - once the question is answered at the PC, it asks before sending$note" }
+                }
             }
         }
         'retry' {

@@ -28,7 +28,7 @@ $script:ChatqPermitFailPath = Join-Path $script:ChatqPermitDir 'bridge-failed.js
 $script:ChatqPermitTool = 'mcp__chatqpermit__decide'
 $script:ChatqPermitDefaultTools = @('Bash', 'PowerShell', 'Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'WebFetch')
 # the modes that prompt at all: dontAsk and bypassPermissions never do, and
-# plan keeps its own "plan ready - approve it in VS Code"
+# plan has no ExitPlanMode in a run to prompt for (it ends done)
 $script:ChatqPermitModes = @('default', 'manual', 'acceptEdits', 'auto')
 $script:ChatqPermitProtocols = @('2024-11-05', '2025-03-26', '2025-06-18', '2025-11-25')
 # when this process sent each permission push, for the cap of 20 an hour

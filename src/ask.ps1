@@ -211,6 +211,26 @@ function Get-ChatqPendingAsk {
     catch { return $null }
 }
 
+function Set-ChatqBehindAsk {
+    <#
+    A phone prompt queued while its chat waits on a question at the PC: the
+    question's call id kept on the job as behindAsk. The job can only run
+    once the PC has answered or dismissed that question, and text typed
+    then was most likely meant as the answer - so Invoke-ChatqJob parks it
+    on needs-input, asking first, rather than sending it as a new turn on
+    top. Not for a permission prompt, which no text answers either way.
+    Whether it was set; never throws.
+    #>
+    param($Job)
+    try {
+        $p = Get-ChatqPendingAsk ([string]$Job.path)
+        if (-not $p -or -not $p.ToolUseId) { return $false }
+        Set-ChatqProp $Job 'behindAsk' ([string]$p.ToolUseId)
+        return [bool](Save-ChatqJob $Job -Existing)
+    }
+    catch { return $false }
+}
+
 function Get-ChatqAskView {
     <#
     What the board's open row and a needs input alert's page carry about a
@@ -286,7 +306,8 @@ function Get-ChatqAskTranscript {
 #region answering: the request, the answer, the decision
 
 function Get-ChatqAskConfig {
-    # config.json's ask block with its defaults: On (off unless switched on),
+    # config.json's ask block with its defaults: On (on unless switched off -
+    # since v1.2.3; Sync-ChatqAskHook puts the hook in place),
     # WaitMinutes (240; 5 to 720), MaxOpen (5; questions held at once, one
     # hidden PowerShell each)
     param($Cfg)
@@ -297,7 +318,7 @@ function Get-ChatqAskConfig {
     if (-not $wait -or $wait -lt 5 -or $wait -gt 720) { $wait = 240 }
     $max = (& $g 'maxOpen') -as [int]
     if (-not $max -or $max -lt 1 -or $max -gt 20) { $max = 5 }
-    [pscustomobject]@{ On = ((& $g 'on') -eq $true); WaitMinutes = $wait; MaxOpen = $max; Manual = ((& $g 'manual') -eq $true) }
+    [pscustomobject]@{ On = ((& $g 'on') -ne $false); WaitMinutes = $wait; MaxOpen = $max; Manual = ((& $g 'manual') -eq $true) }
 }
 
 function Write-ChatqAskLog {
@@ -1025,7 +1046,40 @@ function Uninstall-ChatqAskHook {
     $rm = Invoke-ChatqAskCli @('plugin', 'marketplace', 'remove', $script:ChatqAskMarketName)
     if ($rm.Code -ne 0 -and $rm.Out -notmatch 'not (found|configured)') { return [pscustomobject]@{ Ok = $false; Say = "claude plugin marketplace remove failed: $(($rm.Out -split "`n")[0])" } }
     Remove-Item -LiteralPath (Get-ChatqAskPluginDir) -Recurse -Force -EA SilentlyContinue
+    Remove-Item -LiteralPath (Join-Path $script:ChatqAskDir 'hook.json') -Force -EA SilentlyContinue
     return [pscustomobject]@{ Ok = $true; Say = 'the question hook is removed' }
+}
+
+function Sync-ChatqAskHook {
+    <#
+    Answers from the phone are on unless switched off (Get-ChatqAskConfig),
+    so the watcher puts the hook in place as it starts: installed, or
+    updated when it is this chatq's old version. data/ask/hook.json keeps
+    the version last put in place, so a start with nothing to do runs no
+    claude at all. Not for -Manual (the user's own settings) nor under a
+    managed-hooks-only policy. What happened as one line for the log, or
+    $null for nothing to do; never throws.
+    #>
+    try {
+        $ac = Get-ChatqAskConfig
+        if (-not $ac.On -or $ac.Manual) { return $null }
+        $mark = Join-Path $script:ChatqAskDir 'hook.json'
+        $ver = Get-ChatqAskPluginVersion
+        $m = Read-ChatqJson $mark
+        if ($m -and [string](Get-ChatField $m 'version') -eq $ver) { return $null }
+        $st = Get-ChatqAskHookState
+        if ($st.Blocked) { return 'question hook not installed: the Claude Code policy allows managed hooks only' }
+        $say = 'question hook in place'
+        if (-not $st.Installed -or $st.Stale) {
+            $ins = Install-ChatqAskHook
+            if (-not $ins.Ok) { return "question hook not installed: $($ins.Say)" }
+            $say = "question hook $(if ($st.Stale) { 'updated' } else { 'installed' }) - reload a VS Code window for the chats open in it"
+        }
+        New-ChatqDir $script:ChatqAskDir
+        Save-ChatqJson $mark ([pscustomobject]@{ version = $ver; at = (Get-ChatqStamp) })
+        return $say
+    }
+    catch { return "question hook not checked: $($_.Exception.Message)" }
 }
 
 function Read-ChatqAskChanges {

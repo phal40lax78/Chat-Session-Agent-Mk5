@@ -1035,8 +1035,8 @@ var ChatqPage = (function () {
             var held = e === 'needs input';
             return {
                 text: true, send: { act: 'prompt', label: 'Send' }, more: [status],
-                placeholder: held ? 'Prompt for after it is answered' : 'Next prompt for this chat',
-                hint: held ? 'goes into this chat once its prompt is answered at the PC' : 'goes into this chat when it is idle', about: ''
+                placeholder: held ? 'A new prompt - not the answer' : 'Next prompt for this chat',
+                hint: held ? 'not the answer: a new prompt, for after the PC answers - behind a question, it asks you again first' : 'goes into this chat when it is idle', about: ''
             };
         }
         var skip = { act: 'skip', label: 'Skip', confirm: 'Tap again to skip' };

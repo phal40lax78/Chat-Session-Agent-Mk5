@@ -2426,10 +2426,11 @@ function Get-ChatqClaudeOutcome {
         if (@($NoAnswer).Count -and @($ids | Where-Object { $_ -and $_ -in @($NoAnswer) }).Count) { $o.reason += ' - no answer from the phone' }
         return [pscustomobject]$o
     }
-    if ($Mode -eq 'plan' -or $St.Mode -eq 'plan') {
-        $o.kind = 'needs-input'; $o.reason = 'plan ready - approve it in VS Code'
-        return [pscustomobject]$o
-    }
+    # A plan-mode run is done like any other: with --permission-prompts none
+    # the CLI gives it no ExitPlanMode (nor AskUserQuestion), so there is no
+    # plan card to approve - it replied, and the chat waits on a prompt as
+    # after any turn. Parked on needs-input it stayed on the overlay until
+    # something was typed into a chat that may not even be open.
     $o.kind = 'done'
     $o.asks = Test-ChatqAsks $text
     return [pscustomobject]$o
