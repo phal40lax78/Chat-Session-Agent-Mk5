@@ -69,6 +69,9 @@ body {
     word-break: keep-all; overflow-wrap: anywhere;
 }
 .compose { flex: 1 1 auto; display: flex; flex-direction: column; gap: 6px; min-height: 9rem; }
+/* a question answerable from here (askMode): its card's Send answer is the
+   one thing to do, so the prompt box and its Send go until it is answered */
+[data-asking] .compose, [data-asking] #send, [data-asking] #cSend, [data-asking] #prefill { display: none; }
 textarea {
     flex: 1 1 auto; width: 100%; min-height: 7rem; resize: none;
     font: inherit; font-size: 17px; line-height: 1.45;
@@ -3261,7 +3264,7 @@ var ChatqBoard = (function () {
         }
         box.textContent = '';
         box.hidden = !v;
-        if (!v) return;
+        if (!v) return askMode(id);
         var st = v.open ? {
             ask: ask, v: v, wire: id === 'cAsk' ? 'compose' : 'alert', ctx: ctx, s: B.answerState(v, sget(ADRAFT + v.rid)),
             inputs: [], texts: [], sent: false, sealed: null, key: '', timer: null, name: 'aq' + (++askSeq) + '-'
@@ -3309,6 +3312,15 @@ var ChatqBoard = (function () {
             askTick(id, st);
         }
         box.appendChild(el('p', 'afoot', v.foot));
+        askMode(id);
+    }
+    // the page or chat view marked while its question can be answered from
+    // here and is not yet: CSS hides the prompt box and its Send. Read-only
+    // (no hook, the terminal, -Ask off) keeps them - a prompt is all it takes
+    function askMode(id) {
+        var st = asks[id], host = $(id === 'cAsk' ? 'chat' : 'app');
+        if (st && !st.sent) host.setAttribute('data-asking', '');
+        else host.removeAttribute('data-asking');
     }
     // one question's choices: a radio each (a checkbox each for a multiple
     // choice), then Other with its one line of text
@@ -3402,7 +3414,7 @@ var ChatqBoard = (function () {
     function askSent(id, rid) {
         sdel(ADRAFT + rid);
         var st = asks[id];
-        if (st && st.v.rid === rid) { st.sent = true; askSync(st); }
+        if (st && st.v.rid === rid) { st.sent = true; askSync(st); askMode(id); }
     }
     // Send answer's second tap. On an alert's page it goes the way the
     // page's other acts go - sealed with the alert's key, the status and Try

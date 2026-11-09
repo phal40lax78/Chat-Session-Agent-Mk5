@@ -1,5 +1,33 @@
 # Changelog
 
+## 1.2.4 — Whole chat titles, Character view on the screen, answer-only cards
+
+- **The character's event lines say a chat's whole title.** A line such
+  as a chat finishing cut the title at 24 characters, and a line the
+  title made longer than the skin's `maxChars` was cut with an ellipsis.
+  The line is still picked by the 24-character title, so the same lines
+  are said, but it is said with the title whole, a box past `maxChars`
+  wrapped onto more boxes, as the dialog's names already were
+  ([pick.said](native/overlay/src/pick.rs)). `{project}` is still cut at
+  24.
+
+- **Character view from a panel at the screen's edge stays on the
+  screen.** The stage is wider and taller than the panel and took the
+  panel's top right corner, so a panel at the bottom left put the
+  character wholly under the screen's foot, only the bar's strip left to
+  find it by. The switch now moves the stage just inside its monitor's
+  work area and keeps that place, so Panel view comes back there too
+  ([App.stage_onto_screen](native/overlay/src/app/stage.rs)). A drag may
+  still leave it past an edge (FUTURE_WORK.md, "Character view: what
+  0.11.11 left out").
+
+- **A question the phone can answer shows only its card.** On the alert's
+  page and in the board's chat view, the prompt box, its Send and a
+  Tasker reply's note under it go while the card's Send answer can answer
+  the question; they come back once the answer is sent or the card can
+  no longer take one. A question only the PC can answer keeps the prompt
+  box. Published once `docs/reply.html` is pushed to GitHub Pages.
+
 ## 1.2.3 — Questions answered from the phone by default, no stale plan rows
 
 - **Answering Claude's questions from the phone is on by default.** It
