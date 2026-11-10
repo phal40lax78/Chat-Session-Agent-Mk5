@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.2.5 — Chat Manager, a Panel-view-only package
+
+- **Chat Manager: the panel alone, as its own local `.vsix`.**
+  `node tools/make-chat-manager.js <exe>` packs `chat-manager.vsix` from
+  an overlay built with `--features panel-only`, into `data/chat-manager/`
+  with the Korean install guide (`docs/install-chat-manager.md`) beside
+  it as `HOW-TO-INSTALL.md`; the **PackageCM** task builds that exe and
+  runs it. That build always shows Panel view: the view
+  items, their hotkey, the Skin menu, Demo mode and the HUD size,
+  Character size and Animations settings are left out, and its menu, tray
+  tip and balloons say "Chat Manager" ([app::PANEL_ONLY](native/overlay/src/app.rs),
+  [trayicon::menu_spec](native/overlay/src/trayicon.rs)). The packer also
+  renames the scripts' and extension's texts and makes
+  `~/Tools/Chat-Manager` the tool folder. Not published; the normal
+  build and extension are unchanged.
+
 ## 1.2.4 — Whole chat titles, Character view on the screen, answer-only cards
 
 - **The character's event lines say a chat's whole title.** A line such
