@@ -2446,6 +2446,55 @@ function Read-ChatOpenTabs {
     return $out.ToArray()
 }
 
+function Get-ChatFolderKey {
+    <#
+    What two spellings of one folder share: the path with \ as /, its
+    trailing / cut, and its ASCII letters lower-cased. ASCII only, so that
+    .NET's case tables and the Rust collector's (tabs.rs folder_key) cannot
+    part on a letter. The phone board matches its rows to the open windows
+    by it (ConvertTo-ChatqPhoneBoard).
+    #>
+    param([string]$Path)
+    $k = ([string]$Path).Replace('\', '/').TrimEnd('/')
+    return [regex]::Replace($k, '[A-Z]+', { param($m) $m.Value.ToLowerInvariant() })
+}
+
+function Read-ChatOpenWindows {
+    <#
+    The folders VS Code windows have open, chat or no chat, as each
+    window's extension writes them to open-tabs/<its ext host pid>.json
+    (extension.js writeTabs, "folders"): @{ Window; Cwd } a folder. The
+    files are read as Read-ChatOpenTabs reads them (Read-ChatHostFiles), in
+    the order read, a file's folders in its order; the first of a folder
+    (Get-ChatFolderKey) is kept, so a folder two windows hold is one entry.
+    A file whose folders is missing, null or not a list gives none, and so
+    does a folder that is no string or has no key. Kept apart from
+    Read-ChatOpenTabs, whose rows these are not.
+    #>
+    param([string]$Dir = $script:ChatOverlayOpenTabsDir, [datetime]$Now = (Get-Date))
+    $out = [System.Collections.Generic.List[object]]::new()
+    $seen = @{}
+    foreach ($h in @(Read-ChatHostFiles $Dir $Now)) {
+        $r = $h.Data
+        # the property itself, assigned and not the value of an if or a
+        # function: either hands a one-item list on as its item, which a list
+        # of one folder is not to be told from
+        $fp = $null
+        if ($null -ne $r -and $r.PSObject.Properties['folders']) { $fp = $r.PSObject.Properties['folders'].Value }
+        if ($fp -isnot [array]) { continue }
+        foreach ($f in $fp) {
+            if ($f -isnot [string] -and $f -isnot [datetime]) { continue }
+            $cwd = [string]$f
+            $key = Get-ChatFolderKey $cwd
+            if ($key -eq '' -or $seen[$key]) { continue }
+            $seen[$key] = $true
+            $out.Add([pscustomobject]@{ Window = [string](Get-ChatField $r 'window'); Cwd = $cwd })
+        }
+    }
+    # unrolled: callers take it as @(Read-ChatOpenWindows)
+    return $out.ToArray()
+}
+
 # Deferred: DEFERRED.md "A chat open in a bare root, and the overlay's rows"
 function Get-ChatOverlayRows {
     <#
@@ -2824,8 +2873,9 @@ function New-ChatOverlayContext {
         Recent = @(); RecentCache = @{}; RecentAt = $never; RecentSig = $null; RecentFiles = $null; RecentListAt = $never; WantRecent = $true
         Folders = @{}; RecentWhole = $false; RecentMore = @(); RecentPool = $false
         # VS Code's Claude tabs with no process (Read-ChatOpenTabs), read
-        # every 2 s
-        Tabs = @(); TabsAt = $never
+        # every 2 s, with the folders VS Code's windows have open
+        # (Read-ChatOpenWindows)
+        Tabs = @(); Windows = @(); TabsAt = $never
         LastStatus = @{}; Unread = @{}; Chains = @{}; WantUnread = [bool]$script:ChatqIsWindows
         ViewSig = $null; SavedSig = $null; SavedAt = $never
         # auto-continue's automatic mode (src/auto-continue.ps1): WantAuto,
@@ -2951,7 +3001,10 @@ function Invoke-ChatOverlayCycle {
     # process go on without them; they are rows alone (Get-ChatOverlayRows).
     if ($Ctx.TabsAt -isnot [datetime] -or ($now - $Ctx.TabsAt).TotalSeconds -ge 2 -or $Ctx.TabsAt -gt $now) {
         $Ctx.TabsAt = $now
-        try { $Ctx.Tabs = @(Read-ChatOpenTabs) } catch { $Ctx.Tabs = @(); $err = "open tabs: $($_.Exception.Message)" }
+        # the folder is read a second time for the windows: the files are
+        # cached by text, so it costs a listing and the reads, and the
+        # Rust collector's one read comes to the same lists
+        try { $Ctx.Tabs = @(Read-ChatOpenTabs); $Ctx.Windows = @(Read-ChatOpenWindows) } catch { $Ctx.Tabs = @(); $Ctx.Windows = @(); $err = "open tabs: $($_.Exception.Message)" }
     }
     foreach ($tb in @($Ctx.Tabs)) {
         if ($open[$tb.SessionId]) { continue }
@@ -3313,9 +3366,11 @@ function Invoke-ChatOverlayCycle {
     # its window's name. No other reader's snapshot changes.
     if ($null -ne $Ctx.Events) {
         $tabs = @(@($Ctx.Tabs) | Where-Object { $_ } | ForEach-Object { [pscustomobject]@{ sessionId = [string](Get-ChatField $_ 'SessionId'); window = [string](Get-ChatField $_ 'Window') } })
+        # every folder a window has open, chat or no chat (Read-ChatOpenWindows)
+        $windows = @(@($Ctx.Windows) | Where-Object { $_ } | ForEach-Object { [pscustomobject]@{ window = [string](Get-ChatField $_ 'Window'); cwd = [string](Get-ChatField $_ 'Cwd') } })
         $snap | Add-Member -NotePropertyName ui -NotePropertyValue ([pscustomobject]@{
                 spin = [bool]($Ctx.Fetch -or $Ctx.CopilotFetch -or $Ctx.CodexFetch); console = [bool]$Ctx.PanelConsole; closing = [bool]$Ctx.PanelClosing
-                script = [string]$script:ChatqScriptPath; claudeHome = $(if ($Ctx.ClaudeHome) { [string]$Ctx.ClaudeHome } else { [string]$script:ChatClaudeHome }); tabs = $tabs
+                script = [string]$script:ChatqScriptPath; claudeHome = $(if ($Ctx.ClaudeHome) { [string]$Ctx.ClaudeHome } else { [string]$script:ChatClaudeHome }); tabs = $tabs; windows = $windows
             })
         $snap | Add-Member -NotePropertyName events -NotePropertyValue @($Ctx.Events)
     }

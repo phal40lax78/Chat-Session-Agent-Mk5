@@ -1930,7 +1930,7 @@ function Invoke-ChatOverlayDeleteChip {
         Reset-ChatOverlayDeleteArm $H
         $r = Remove-ChatOverlayRow $H $Row
         Hide-ChatOverlayChip $H
-        Set-ChatOverlayOpenSay $H (Get-ChatOverlayDeleteSay ([bool]$r.Done) ([string]$r.Say)) $key
+        Set-ChatOverlayOpenSay $H (Get-ChatOverlayDeleteSay ([bool]$r.Done) ([string]$r.Say) -Warn:([bool]$r.Warn)) $key
     }
     catch {
         Write-ChatOverlayLog "delete chip: $($_.Exception.Message)"
@@ -4158,6 +4158,8 @@ function Get-ChatOverlaySayWord {
         'nostart' { return 'NOT OPENED' }
         'delete' { return $(if ($warn) { 'NOT DELETED' } else { 'DELETED' }) }
         'archive' { return $(if ($warn) { 'NOT ARCHIVED' } else { 'ARCHIVED' }) }
+        'delete-tab' { return 'DELETED' }
+        'archive-tab' { return 'ARCHIVED' }
         'snooze' { return 'SNOOZED' }
         'reload' { return 'RELOAD' }
     }

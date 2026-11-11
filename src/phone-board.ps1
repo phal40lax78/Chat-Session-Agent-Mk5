@@ -595,6 +595,15 @@ function New-ChatqPhoneJob {
     if ($Kind -eq 'prompt') {
         if (-not $Text.Trim()) { return (& $fail "an empty $Noun - nothing queued") }
         if ($Text.Length -gt 8000) { return (& $fail "that $Noun is $($Text.Length) characters, 8000 at most - nothing queued") }
+        # The same words for the same chat while the first is still to run
+        # or running: a second tap, each sealed afresh, so no nonce tells
+        # them apart. Queued, it ran once the first had finished - into a
+        # chat that had moved on since.
+        $same = @(Get-ChatqJobs | Where-Object {
+                $_.state -in 'queued', 'running' -and [string]$_.sessionId -eq [string]$Row.Id -and [string]$_.provider -eq [string]$Row.Provider -and
+                $_.kind -ne 'continue' -and (Read-ChatqPrompt $_) -ceq $Text.Trim()
+            }) | Select-Object -First 1
+        if ($same) { return (& $fail "the same $Noun is already queued as #$($same.seq) - nothing queued") }
     }
     $info = Get-ChatqJobInfo $Row
     if ($info.Error) { return (& $fail "nothing queued: $($info.Error)") }
@@ -822,6 +831,11 @@ function ConvertTo-ChatqPhoneBoard {
               the newest prompt, the blue new-turn dot, the jobs riding on it
       cut     chats the limit or a 529 stopped: the overlay's own words, the
               reset when the scan knows it, a continue queued for it
+      windows VS Code windows on a folder (the snapshot's ui.windows) that no
+              open or cut row is in: { n: the folder's name, g: its key }, so
+              the page heads the project with no rows. Every open and cut
+              row says g, its folder's key (\ as /, no trailing slash, lower
+              case), '' with no cwd.
       queue   jobs queued, running, needing input, and failed in the last
               12 hours, with "sends" as chatqlist has it - or what the
               watcher holds one back for (Format-ChatOverlayDeferral)
@@ -893,6 +907,13 @@ function ConvertTo-ChatqPhoneBoard {
         $lim = Limit-ChatqPhoneMode $m $Cap
         $row['m'] = [string]$lim.Mode; $row['mc'] = [bool]$lim.Capped; $row['known'] = $true
     }
+    # the folder as the page groups by it (g): the overlay's own folder key
+    # (Get-ChatFolderKey), not Get-ChatqFolderKey's, which asks the file
+    # system's full path and says \ ; '' for a row with no folder
+    $groupKey = {
+        param([string]$p)
+        Get-ChatFolderKey $p
+    }
     $more = 0
     $open = [System.Collections.Generic.List[object]]::new()
     $cut = [System.Collections.Generic.List[object]]::new()
@@ -915,7 +936,7 @@ function ConvertTo-ChatqPhoneBoard {
             $cw = if ($au) { [string](Get-ChatField $au 'cutWhy') } else { '' }
             $crow = [ordered]@{
                 h = (& $chatKey $sid $cwd ([string](Get-ChatField $r 'title')) ([string](Get-ChatField $r 'path'))); id8 = $sid.Substring(0, [Math]::Min(8, $sid.Length)); t = $title
-                f = [string](Get-ChatField $r 'project'); where = [string](Get-ChatField $r 'where'); why = $(if ($cw -eq 'overloaded' -or (-not $cw -and $detail -like '529*')) { 'overloaded' } else { 'limit' })
+                f = [string](Get-ChatField $r 'project'); g = (& $groupKey $cwd); where = [string](Get-ChatField $r 'where'); why = $(if ($cw -eq 'overloaded' -or (-not $cw -and $detail -like '529*')) { 'overloaded' } else { 'limit' })
                 d = $detail; reset = $reset; age = (ConvertTo-ChatqIso $since); jobs = @(& $jobsOf $sid)
             }
             # what auto-continue does with it, in full, as the overlay's
@@ -933,7 +954,7 @@ function ConvertTo-ChatqPhoneBoard {
         if ($ask) { $chat = 'waiting' }
         $row = [ordered]@{
             h = (& $chatKey $sid $cwd ([string](Get-ChatField $r 'title')) $null); id8 = $sid.Substring(0, [Math]::Min(8, $sid.Length)); t = $title
-            f = [string](Get-ChatField $r 'project'); where = [string](Get-ChatField $r 'where'); state = $chat
+            f = [string](Get-ChatField $r 'project'); g = (& $groupKey $cwd); where = [string](Get-ChatField $r 'where'); state = $chat
             what = $(if ($ask) { Get-ChatqAskWhat $ask } elseif ($chat -eq 'waiting') { [string](Get-ChatField $r 'detail') } else { '' })
             prompt = (Get-ChatqBoardLine ([string](Get-ChatField $r 'prompt')) 120); new = [bool](Get-ChatField $r 'unread')
             age = (ConvertTo-ChatqIso $since); jobs = @(& $jobsOf $sid)
@@ -1000,9 +1021,23 @@ function ConvertTo-ChatqPhoneBoard {
                 asof = (ConvertTo-ChatqIso $at); stale = [bool](Get-ChatField $u 'stale'); st = [string](Get-ChatField $u 'status')
             }
         })
+    # a VS Code window on a folder none of the open or cut-off chats is in:
+    # the project, name only, for the page to head with no rows
+    $rowG = @{}
+    foreach ($x in @($open) + @($cut)) { if ($x -and $x['g']) { $rowG[[string]$x['g']] = $true } }
+    $wins = [System.Collections.Generic.List[object]]::new()
+    foreach ($w in @(Get-ChatField (Get-ChatField $Snap 'ui') 'windows')) {
+        if (-not $w) { continue }
+        $wc = ([string](Get-ChatField $w 'cwd')).Trim().TrimEnd('\', '/')
+        $wg = & $groupKey $wc
+        if (-not $wg -or $rowG[$wg]) { continue }
+        $rowG[$wg] = $true
+        $wn = Split-Path $wc -Leaf
+        $wins.Add([ordered]@{ n = $(if ($wn) { $wn } else { $wc }); g = $wg })
+    }
     $body = [ordered]@{
         v = 3; kind = 'board'; ref = ''; ts = 0; host = ''; cap = ''; newMode = ''; listen = ''; until = $null; compose = $true; from = $From; left = 0
-        usage = @($usage); open = @($open.ToArray()); cut = @($cut.ToArray()); queue = @($queue.ToArray()); recent = @($recent.ToArray()); folders = @($fold.ToArray()); more = $more
+        usage = @($usage); open = @($open.ToArray()); cut = @($cut.ToArray()); windows = @($wins.ToArray()); queue = @($queue.ToArray()); recent = @($recent.ToArray()); folders = @($fold.ToArray()); more = $more
     }
     return [pscustomobject]@{ Body = $body; Items = $items.ToArray() }
 }
@@ -1075,7 +1110,10 @@ function Get-ChatqBoardScan {
                 stale = [bool]($u.AsOfAt -and ($Now - $u.AsOfAt).TotalHours -ge 1); status = $(if ($u.AsOf) { "as of $($u.AsOf)" } else { '' })
             }
         })
-    return [pscustomobject]@{ rows = $rows; recent = @($ctx.Recent); header = [pscustomobject]@{ usage = $usage }; CutInfo = $cutInfo }
+    # the windows open on a folder, a chat or none (Read-ChatOpenWindows), as
+    # the overlay's snapshot says them in ui.windows
+    $windows = @(try { Read-ChatOpenWindows } catch { @() })
+    return [pscustomobject]@{ rows = $rows; recent = @($ctx.Recent); header = [pscustomobject]@{ usage = $usage }; ui = @{ windows = $windows }; CutInfo = $cutInfo }
 }
 
 function Add-ChatqBoardModes {

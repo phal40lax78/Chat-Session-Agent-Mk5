@@ -398,7 +398,13 @@ function chatclean {
     $tabs = [System.Collections.Generic.List[object]]::new()
     foreach ($g in $chosen) {
         $t = @(Get-ChatCloseTabs $g)
-        if (Remove-ChatSession $g) { foreach ($e in $t) { $tabs.Add($e) } }
+        $left = if (-not $t.Count) { @(Request-ChatTabClose $g) } else { @() }
+        if (Remove-ChatSession $g) {
+            foreach ($e in $t) { $tabs.Add($e) }
+            if ($left.Count) {
+                Write-Host "           its tab in $($left -join ' and ') may still be open (its label is shared with another chat) - close it there" -ForegroundColor Yellow
+            }
+        }
     }
     Write-Host ''
     Write-ChatGhostAdvice -CloseTabs $tabs.ToArray()

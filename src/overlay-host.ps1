@@ -233,8 +233,11 @@ function Get-ChatOverlayDeleteSay {
     # the panel's said marker for a delete chip's outcome (Remove-ChatSessionById's
     # Done and Say), or with -Archive an archive's, as the open's is
     # (Get-ChatOverlayOpenSay). Pure.
-    param([bool]$Done, [string]$Say, [switch]$Archive)
+    param([bool]$Done, [string]$Say, [switch]$Archive, [switch]$Warn)
     $kind = if ($Archive) { 'archive' } else { 'delete' }
+    # done, but a tab with the chat's label may be left open: loud, and a kind
+    # of its own so the word stays DELETED and the row is not put back
+    if ($Done -and $Warn) { return @{ Kind = "$kind-tab"; Text = $Say; Tone = 'warn'; Keep = 20 } }
     if ($Done) { return @{ Kind = $kind; Text = $Say; Tone = 'dim'; Keep = 5 } }
     return @{ Kind = $kind; Text = $(if ($Say) { $Say } else { if ($Archive) { 'Nothing archived.' } else { 'Nothing deleted.' } }); Tone = 'warn'; Keep = 20 }
 }
@@ -590,7 +593,7 @@ function Invoke-ChatOverlayPanelVerb {
                 $r = Remove-ChatOverlayRow $H $row -Archive:$arc
                 # a delete is said on the panel alone, no Windows balloon
                 if ($r.Say -and $arc) { Show-ChatOverlayBalloon $H $r.Say }
-                Add-ChatOverlaySaid $H (Get-ChatOverlayDeleteSay ([bool]$r.Done) ([string]$r.Say) -Archive:$arc) $key
+                Add-ChatOverlaySaid $H (Get-ChatOverlayDeleteSay ([bool]$r.Done) ([string]$r.Say) -Archive:$arc -Warn:([bool]$r.Warn)) $key
                 return $true
             }
             'reload-answer' {

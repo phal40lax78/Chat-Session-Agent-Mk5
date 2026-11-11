@@ -1334,10 +1334,13 @@ function Get-ChatqReplyLink {
     # far back to look for it.
     # -Status: the alert's footer (Get-ChatqAlertFooter), as s= - usage and
     # the chats at work, shown under the title
-    param($Rc, [string]$Aid, [string]$Event, $Job, [int]$TitleChars = 20,
+    # The title is the page's big heading, so it gets the board's 60
+    # characters (Format-ChatTitle), marked when cut; Get-ChatqJoinUrl drops
+    # c= whole when the URL would not fit.
+    param($Rc, [string]$Aid, [string]$Event, $Job, [int]$TitleChars = 60,
         [string]$UsageKind, [string]$Card, [switch]$Full, [int64]$At = 0, [string]$Status)
     $t = if ($Job -and $Job.title) { [string]$Job.title } else { '' }
-    $t = Limit-ChatqText $t $TitleChars
+    $t = Limit-ChatqText $t $TitleChars -Ellipsis
     $q = [ordered]@{
         v = '2'; a = $Aid; e = $Event
         n = $(if ($Job -and $Job.seq) { [string]$Job.seq } else { '' }); c = $t

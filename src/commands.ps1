@@ -14,12 +14,17 @@ function New-ChatqSeq {
     # at #1 again once nothing is open; a done job keeps its old number, and
     # Find-ChatqJob prefers the open job when two share one. A prompt file
     # counts while no job's .json claims it (a slot still being filled).
+    # A failed job counts for 12 h after it ended, as long as the phone's
+    # board shows it: one from weeks ago, in no list, held the numbers past
+    # #20 with the queue empty to the eye.
     $max = 0
     $claimed = @{}
+    $failedSince = (Get-Date).AddHours(-12)
     foreach ($j in @(Get-ChatqJobs)) {
         $pf = [string](Get-ChatField $j 'promptFile')
         if ($pf) { $claimed[$pf] = $true }
-        if ($j.state -in 'queued', 'running', 'needs-input', 'failed' -and [int]$j.seq -gt $max) { $max = [int]$j.seq }
+        $open = $j.state -in 'queued', 'running', 'needs-input' -or ($j.state -eq 'failed' -and (ConvertTo-ChatqDate (Get-ChatField $j 'endedAt')) -gt $failedSince)
+        if ($open -and [int]$j.seq -gt $max) { $max = [int]$j.seq }
     }
     foreach ($f in @(Get-ChildItem -LiteralPath $script:ChatqQueueDir -Filter '#*' -File -EA SilentlyContinue)) {
         if (-not $claimed[$f.Name] -and $f.Name -match '^#(\d{1,9}) ' -and [int]$Matches[1] -gt $max) { $max = [int]$Matches[1] }

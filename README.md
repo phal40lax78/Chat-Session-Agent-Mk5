@@ -1212,9 +1212,12 @@ Open the reply page with no alert - a bookmark of
 to Home screen** - on the paired phone, and it is the overlay, phone-sized:
 - usage, a line and a bar per window, the reset when limited and `as of`
   when the figure is an hour old;
-- **Waiting on you**, **Working**, **Cut off**, **Queue**, **Open, idle**
-  and **Recent**, in the overlay's order and colours, as the quest
-  tracker's rows: a badge for the state - a yellow square with a `!` for
+- a header per project (the chat's folder, else `OTHER`) with its chats
+  under it, the project with the most urgent chat first and a project's
+  waiting chats before its working, cut off and idle ones, then a header
+  alone for each open VS Code window whose folder has no chat; then
+  **Queue**, **Recent** and **Older chats**, in the overlay's order and
+  colours, as the quest tracker's rows: a badge for the state - a yellow square with a `!` for
   work, a red empty box for a chat that waits on you or is cut off, a green
   one with a tick for a recent one, a dim empty one for the rest - the
   chat's folder as a small yellow line of capitals above its title, where
@@ -2364,15 +2367,17 @@ panel of tiles but a HUD with no frame: the skin's character in the
 middle - the built-in skin's badge, or your pack's - with no tags round
 it (AUTO, ASK, the notes and MUTE live in the panel, the tray and the
 notes) and the panel's bar of buttons along its top. To the right of the
-bars (or alone, with no gauges) stand status boxes, a
-cut-corner box with an icon and a short text above it, a ring round it
-sweeping clockwise, in the order MEM, RLD, `!`: **memory** when Windows'
-memory is above 85% used (the ring the share used, the text `NN%`, red
-above 90%) or while a program leaks (the icon red, the text `LEAK` at or
-under 85%, the hover card naming the program); a window's **reload ask**
-for the 30 seconds it is up (the ring the time gone, the text the seconds
-left; the box goes when the ring is whole); and **`!`**, a red whole ring
-for a stopped watcher or an error (the hover card says it). Two windows of their own sit at the screen's
+bars (or alone, with no gauges) stand status boxes, a square tile
+with two corners cut, an icon in it and a short text above it, its lit
+share sweeping clockwise round its edge, in the order MEM, RLD, `!`:
+**memory** when Windows' memory is above 85% used (the lit share the
+share used, the text `NN%`, red above 90%) or while a program leaks (the
+icon red, the text `LEAK` at or under 85%); a window's **reload ask** for
+the 30 seconds it is up (the lit share the time gone, the text the
+seconds left; the box goes when it is whole); and **`!`**, a red tile for
+a stopped watcher or an error. Resting on a box brings its hover card, a
+few words: memory's the percent used, then what leaks; the reload's the
+window; `!`'s the note. Two windows of their own sit at the screen's
 edges, on the monitor the HUD is on, over whatever is there, and let
 clicks through to what is under them; resting on a gauge card or a quest
 brings its hover card, with keys under it; the keys' letters work on the
@@ -2401,8 +2406,11 @@ yellow caps header with a crosshair per project (a chat's folder, else
 its project, else `OTHER`; the project with the most urgent chat
 first) and a row per chat under it - a badge and the title in up to two
 lines, with the time Panel view's tile shows at its right in smaller red
-figures, always. A list taller than the screen ends in `+N more`.
-Recent lines are not in it.
+figures, always. After those, a header alone stands for each folder of
+a VS Code window that has no chat in the list (the `folders` of
+`data/open-tabs/`, below), so a window open on a project with no chat
+still shows its name. A list taller than the screen ends in `+N more`,
+and then draws no header alone. Recent lines are not in it.
 
 The HUD curves like the game's: the gauges, the quest list, the speech box
 and the bar of buttons are bent as if drawn on a curved visor. At the
@@ -3242,7 +3250,8 @@ brought back can have no `claude` process behind it, so the Claude
 registry the overlay reads does not list it, and its chat sat in Recent
 as if closed. So each window lists its Claude tabs in
 `data/open-tabs/<its extension host's pid>.json` - `{v:1, pid, started,
-window, tabs:[{sessionId, cwd, label}]}` - and the overlay, reading it
+window, folders, tabs:[{sessionId, cwd, label}]}`, `folders` being the
+window's workspace folders - and the overlay, reading it
 every 2 s, gives each tab whose chat no process holds an idle row of its
 own, on the phone board too. A tab carries no session id, only its
 label, so a tab is listed only when no other Claude tab of the window
@@ -3251,8 +3260,9 @@ newest gives it: an untitled `Claude Code` tab, two of one label, and a
 label two chats would give are left out. The window looks 2 s after
 activation and after the tabs change, and every 30 s besides, since a
 chat's title can come after its tab's label; it writes only when the
-list changed, and removes the file when no tab is listed and as the
-window closes. A look that cannot read the chats within 1.5 s leaves the
+list changed, and removes the file when the window has neither a
+workspace folder nor a listed tab, and as the window closes (a window
+with a folder and no tab keeps its file, `tabs` empty). A look that cannot read the chats within 1.5 s leaves the
 file as it was and looks again 2 s on, with what it read kept; late
 again, it waits for the 30 s look. Activation also clears the files of
 windows that are gone, as the overlay does, some 10 s on, for any whose

@@ -310,7 +310,7 @@ function Remove-ChatSessionById {
     #>
     param([string]$SessionId, [string]$Cwd, [string]$Title, [string]$ConfigDir = $script:ChatClaudeHome, [object[]]$Live = @(), [switch]$Archive)
     $t = '"' + (Format-ChatTitle $Title 40) + '"'
-    $say = { param($done, $text) [pscustomobject]@{ Done = $done; Say = $text } }
+    $say = { param($done, $text, $warn = $false) [pscustomobject]@{ Done = $done; Say = $text; Warn = $warn } }
     $verb = if ($Archive) { 'archive' } else { 'delete' }
     $mine = @($Live | Where-Object { $_ -and [string](Get-ChatField $_ 'SessionId') -eq $SessionId })
     # a print-mode claude stamps itself sdk-*: a queued prompt, or someone's
@@ -345,6 +345,11 @@ function Remove-ChatSessionById {
         if ($mine.Count -and -not $tabs.Count) {
             return (& $say $false "$t is open in a VS Code window where its tab cannot be told apart - close it there, then archive it.")
         }
+    }
+    # no window lists the chat: ask those showing a tab of its label, while
+    # the transcript is still there
+    $left = if (-not $tabs.Count) { @(Request-ChatTabClose $hit -ConfigHome $ConfigDir -Archive:$Archive) } else { @() }
+    if ($Archive) {
         if (-not (Save-ChatArchive $hit -Live $Live -Closing:([bool]$tabs.Count) 6>$null)) {
             return (& $say $false "$t could not be archived - another process holds it, or it is archived already.")
         }
@@ -361,7 +366,11 @@ function Remove-ChatSessionById {
             }).Count
         Write-ChatReloadRequest -Title $rec.Title -Cwd $Cwd -Kind $(if ($Archive) { 'archived' } else { 'deleted' }) -Busy $busy -CloseTabs $tabs
     }
-    return (& $say $true $(if ($Archive) { "Archived $t." } else { "Deleted $t." }))
+    $did = if ($Archive) { 'Archived' } else { 'Deleted' }
+    if ($left.Count) {
+        return (& $say $true "$did $t - its tab in $($left -join ' and ') may still be open (its label is shared with another chat). Close it there." $true)
+    }
+    return (& $say $true "$did $t.")
 }
 
 #region archive and restore ---------------------------------------------------
@@ -1917,6 +1926,85 @@ function Get-ChatCloseTabs {
     return $out.ToArray()
 }
 
+function Get-ChatClaudeTabLabel {
+    # The label Claude Code gives a chat's tab: its title, else the first 24
+    # characters and an ellipsis when the title is over 25 (claudeTabLabel in
+    # extension.js); "Claude Code" for none.
+    param([string]$Title)
+    if (-not $Title) { return 'Claude Code' }
+    if ($Title.Length -gt 25) { return $Title.Substring(0, 24) + [char]0x2026 }
+    return $Title
+}
+
+# Deferred: DEFERRED.md "Two chats whose titles share 24 characters"
+function Request-ChatTabClose {
+    <#
+    Asks the VS Code windows that show a tab of this chat's label, when no
+    window lists the chat itself (Get-ChatCloseTabs found none), to close
+    it: Claude Code cuts a long title to 24 characters, so two chats can
+    share a label, and a webview tab has no session id for the window to be
+    told by. Only windows whose open-tabs file lists the label (labels,
+    compared case-sensitively) are asked; none, and nothing is written or
+    waited on. The ask is data/close-request, answered in
+    close-ack/<ext host pid>.json with its id (onCloseRequest and
+    closeByReveal in extension.js; remove::ask_close is the Rust twin).
+    Waits ChatCloseAckSeconds on a real clock, the answers being another
+    process's. Returns the names of the windows that did not close it or
+    say there was none (unsure, working, no answer), unrolled; an empty one
+    reads "a VS Code window". Call it before the transcript goes.
+    #>
+    param($Hit, [string]$ConfigHome, [switch]$Archive, [string]$Dir = $script:ChatOverlayOpenTabsDir, [datetime]$Now = (Get-Date))
+    if (-not $Hit -or $Hit.Provider -ne 'claude' -or -not $Dir) { return @() }
+    $title = [string]$Hit.Record.Title
+    if (-not $title) { return @() }
+    $sid = [string]$Hit.Record.Id
+    if (-not $sid) { $sid = $Hit.File.BaseName }
+    if (-not $ConfigHome) { $ConfigHome = Split-Path (Split-Path $Hit.File.DirectoryName -Parent) -Parent }
+    $label = Get-ChatClaudeTabLabel $title
+    $asked = @(Read-ChatHostFiles $Dir $Now | Where-Object { @(Get-ChatField $_.Data 'labels') -ccontains $label })
+    if (-not $asked.Count) { return @() }
+    foreach ($h in $asked) { Remove-Item -LiteralPath (Join-Path $script:ChatCloseAckDir "$($h.HostPid).json") -Force -EA SilentlyContinue }
+    $id = [guid]::NewGuid().ToString()
+    $req = [ordered]@{
+        v        = 1
+        id       = $id
+        kind     = $(if ($Archive) { 'archived' } else { 'deleted' })
+        sessionId = $sid
+        title    = $title
+        label    = $label
+        home     = $(if ($ConfigHome) { $ConfigHome } else { $null })
+        hostPids = [int[]]@($asked | ForEach-Object { $_.HostPid })
+        at       = (Get-Date).ToString('o')
+    }
+    $answers = @{}
+    $wrote = $true
+    try { Save-ChatqText $script:ChatCloseRequestPath ($req | ConvertTo-Json -Compress) } catch { $wrote = $false }
+    if ($wrote) {
+        if ($script:ChatCloseRequestSeam) { $null = & $script:ChatCloseRequestSeam ([pscustomobject]$req) }   # tests
+        $sw = [Diagnostics.Stopwatch]::StartNew()
+        while ($true) {
+            foreach ($h in $asked) {
+                $a = Read-ChatCloseAck $h.HostPid
+                if ($a -and [string]$a.id -eq $id -and [string]$a.answer) { $answers[[int]$h.HostPid] = [string]$a.answer }
+            }
+            if ($answers.Count -ge $asked.Count -or $sw.Elapsed.TotalSeconds -ge $script:ChatCloseAckSeconds) { break }
+            Start-Sleep -Milliseconds $script:ChatCloseAckPollMs
+        }
+        # another delete may have replaced the request since
+        $held = try { [System.IO.File]::ReadAllText($script:ChatCloseRequestPath).TrimStart([char]0xFEFF) | ConvertFrom-Json } catch { $null }
+        if ($held -and [string]$held.id -eq $id) { Remove-Item -LiteralPath $script:ChatCloseRequestPath -Force -EA SilentlyContinue }
+    }
+    foreach ($h in $asked) { Remove-Item -LiteralPath (Join-Path $script:ChatCloseAckDir "$($h.HostPid).json") -Force -EA SilentlyContinue }
+    $names = [System.Collections.Generic.List[string]]::new()
+    foreach ($h in $asked) {
+        if ($answers[[int]$h.HostPid] -in 'closed', 'none') { continue }
+        $n = [string](Get-ChatField $h.Data 'window')
+        if (-not $n) { $n = 'a VS Code window' }
+        if (-not $names.Contains($n)) { $names.Add($n) }
+    }
+    return $names.ToArray()
+}
+
 function Write-ChatOpenRequest {
     # The overlay's open chip: show this chat, up to date, in the window that
     # has it - data/open-request, its own file, so a run's request and a
@@ -2028,6 +2116,15 @@ function Read-ChatRunState {
     param([string]$Path = $script:ChatRunStatePath)
     if (-not (Test-Path -LiteralPath $Path)) { return $null }
     try { return ([System.IO.File]::ReadAllText($Path).TrimStart([char]0xFEFF) | ConvertFrom-Json) } catch { return $null }
+}
+
+function Read-ChatCloseAck {
+    # A window's answer to a close request: close-ack/<its ext host pid>.json,
+    # @{ id; answer; at } - or $null. A BOM is let past.
+    param([int]$HostPid)
+    $f = Join-Path $script:ChatCloseAckDir "$HostPid.json"
+    if (-not (Test-Path -LiteralPath $f)) { return $null }
+    try { return ([System.IO.File]::ReadAllText($f).TrimStart([char]0xFEFF) | ConvertFrom-Json) } catch { return $null }
 }
 
 function Read-ChatRunAck {
@@ -2674,9 +2771,22 @@ function Invoke-ChatTake {
     $take = {
         param($h)
         $t = @(Get-ChatCloseTabs $h)
-        if ($Archive) { $gone = Save-ChatArchive $h -Closing:([bool]$t.Count) }
+        $live = @()
+        if ($Archive -and $h.Provider -eq 'claude') { $live = @(Get-ChatqLiveSessions $env:CLAUDE_CONFIG_DIR) }
+        # no window lists the chat: ask those showing a tab of its label. An
+        # archive of a chat still open is kept, so nothing is closed for it
+        $left = @()
+        if (-not $t.Count -and -not ($Archive -and @($live | Where-Object { [string](Get-ChatField $_ 'SessionId') -eq $h.Record.Id }).Count)) {
+            $left = @(Request-ChatTabClose $h -Archive:$Archive)
+        }
+        if ($Archive) { $gone = if ($h.Provider -eq 'claude') { Save-ChatArchive $h -Live $live -Closing:([bool]$t.Count) } else { Save-ChatArchive $h -Closing:([bool]$t.Count) } }
         else { $gone = Remove-ChatSession $h }
-        if ($gone) { foreach ($e in $t) { $tabs.Add($e) } }
+        if ($gone) {
+            foreach ($e in $t) { $tabs.Add($e) }
+            if ($left.Count) {
+                Write-Host "           its tab in $($left -join ' and ') may still be open (its label is shared with another chat) - close it there" -ForegroundColor Yellow
+            }
+        }
         return $gone
     }
     $names = if ($Provider) { $Provider } else { @($script:ChatProviders.Keys) }

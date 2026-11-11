@@ -1,5 +1,130 @@
 # Changelog
 
+## 1.2.7 — A shared-label tab closed on delete
+
+- **Deleting a chat whose tab label another chat shares now closes its own
+  tab, or says where one may be left.** A fork titled "Notification items
+  on demo (fork)" reads "Notification items on de…" like its original, so
+  a delete named no window and left the tab open without a word. Each
+  window's `data/open-tabs/<pid>.json` gains `labels`, every Claude tab
+  label in it ([writeTabs](extension/extension.js)). Where no window's
+  file lists the chat and a window's `labels` holds its label, the script
+  writes `data/close-request` and waits up to 4 s for
+  `data/close-ack/<pid>.json` from each such window
+  ([remove::ask_close](native/overlay/collect/src/remove/mod.rs),
+  [Request-ChatTabClose](src/chatrm.ps1)). The window reveals the chat's
+  own panel by id while the transcript is there, closes it if it came
+  forward (`closed`), closes a tab the reveal had to open (`unsure` if the
+  label still shows, else `none`), and touches nothing of a working chat
+  (`working`) ([closeByReveal](extension/extension.js)). The delete goes
+  ahead whatever the answers; if a window did not close it, the overlay's
+  done line turns warn: "Deleted "X" - its tab in <window> may still be
+  open (its label is shared with another chat). Close it there."
+  (`delete-tab` and `archive-tab` said kinds,
+  [Get-ChatOverlayDeleteSay](src/overlay-host.ps1)), and `chatrm`,
+  `chatarchive` and `chatclean` print the same in yellow. An archive keeps
+  its refusal for a chat open where its tab cannot be told apart. The
+  delete can wait up to 4 s, only where a label is shared.
+
+  Two cases the live test turned up are covered. A fork's tab already
+  in front - the usual case, as it was opened last - is stepped off first
+  (the group's previous tab), so its reveal shows as a change; before, the
+  window said `unsure` and left it. And tabs are told apart by place
+  (group and index), not by object: VS Code hands out new Tab objects when
+  it sends its tab model again, so every tab of the label read as new and
+  the original's tab was closed with the fork's.
+
+## 1.2.6 — Empty windows' projects, status tiles, no double sends
+
+- **A VS Code window with no chat still shows its project, in Character
+  view and on the phone board.** Each window's
+  `data/open-tabs/<pid>.json` now also lists the window's workspace
+  folders (`folders`), and the file is written while the window has a
+  folder or a tab, so a window with no Claude tab keeps one with `tabs:[]`;
+  it goes as the window closes and when it has neither
+  ([writeTabs](extension/extension.js), and a change of folders is looked
+  at like a change of tabs). The overlay snapshot gains `ui.windows`, one
+  `{window, cwd}` per folder of each live file, a folder that shows twice
+  kept once by its key (slashes alike, no trailing one, lower case)
+  ([windows_of](native/overlay/collect/src/tabs.rs),
+  [Read-ChatOpenWindows](src/overlay-data.ps1)). In Character view the
+  quest list draws a yellow caps header for each such project after the
+  chat groups, with no row under it, and the window opens for it alone; a
+  list cut to `+N more` draws none
+  ([quest_list](native/overlay/src/card.rs)). The phone board is regrouped
+  by project too: a header per project with its chats under it, the one
+  with the most urgent chat first, then a header alone for a window with
+  no chat, and Queue, Recent and Older chats as before; search keeps the
+  matching chats of a project, or a bare project by its name
+  ([ConvertTo-ChatqPhoneBoard](src/phone-board.ps1), `ChatqBoard.projects`
+  in [reply.html](docs/reply.html)).
+
+- **Status boxes are the game's status tiles, and each has a hover card.**
+  Character view's MEM, RLD and `!` boxes were rings round an icon; they
+  are now square tiles with their top-right and bottom-left corners cut,
+  as the status effects beside the game's health bar are, the lit share
+  sweeping clockwise round the tile's edge and filling it, on a near
+  opaque ground so a bright window behind does not drown them
+  ([status_box](native/overlay/src/hud.rs)). Every box now brings a hover
+  card of a few words, as a tile is only an icon: memory's the percent
+  used, then what leaks; the reload's the window; `!`'s the note. Before,
+  a memory box with no leak and the reload's box had none, and the leak's and
+  `!`'s cards carried a chat's four keys, all dim, and said their word
+  twice. A status box's card now has no keys, says its word once and is
+  as wide as its words ([App::card_keys](native/overlay/src/app/pointer.rs),
+  [notice_width](native/overlay/src/card.rs)). Two boxes had been cut
+  off unseen: the gauge window's region left out a box with no card, and
+  the region clips drawing too.
+
+- **The demo shows the status boxes.** The promo scene has three more
+  steps, memory, leak and error, before its end: memory at 92% with a
+  reload ask counting down, then a leak, then a stopped watcher
+  ([promo.json](design/skippy/demo/promo.json)). A reload in a scene step
+  with no `seenAt` gets the time the step plays
+  ([stamped](tools/overlay_scene.py)).
+
+- **A phone alert's page heads with the chat's whole title.** The link
+  carried only its first 20 characters, so "Pushface command hrm
+  convention" read "Pushface command hrm". It now carries up to 60, as the
+  board does, with an ellipsis when cut
+  ([Get-ChatqReplyLink](src/phone.ps1)); when Join's URL would be too long
+  the title still goes from the link whole.
+
+- **No prompt box under a question still on its way.** A needs input
+  alert's question comes with the whole answer, a few seconds after the
+  page opens; until then the page showed the prompt box, which reads as
+  the place to answer. It is hidden while the answer loads and comes
+  back only when the question cannot be answered from the phone
+  ([answerInit](docs/reply.html)).
+
+- **The question hook is updated by chatqd too.** 1.2.3 had the watcher
+  install or update the hook as it starts, but only the PowerShell watcher
+  did: under chatqd the 1.2.3 hook stayed in place through 1.2.4 and 1.2.5.
+  chatqd's start now runs its repair step while `data/ask/hook.json` marks
+  another version ([gates::ask_hook_due](native/crates/chatq-core/src/gates.rs)),
+  and that step runs [Sync-ChatqAskHook](src/ask.ps1).
+
+- **Send again takes two taps.** Right after a prompt went, the page's
+  button said Send again with the text still in the box, so one more tap
+  sent it a second time - sealed afresh, which the PC cannot tell from a
+  new prompt. A "yes" sent twice ran twice, the second 50 minutes later,
+  into a chat that had moved on. Now the first tap asks (Tap again to send
+  it twice), and a double tap's second half does not answer it, as with
+  Skip and Stop ([press](docs/reply.html)).
+
+- **The same prompt twice for one chat is queued once.** A phone reply or
+  board message whose words match a job still queued or running for that
+  chat is dropped, and the push says "the same reply is already queued as
+  #22" ([New-ChatqPhoneJob](src/phone-board.ps1)). Other words, or the
+  same once the first has finished, queue as before.
+
+- **Queue numbers start at #1 again past old failed jobs.** 1.1.2 counted
+  a failed job as open for good, so two from September and October kept
+  every new job at #22 and up while no list showed them. A failed job now
+  holds its number for 12 hours after it ended, as long as the phone's
+  board lists it ([New-ChatqSeq](src/commands.ps1)). It keeps its number
+  after that; once a new job takes the same one, `#n` means the new job.
+
 ## 1.2.5 — Chat Manager, a Panel-view-only package
 
 - **Chat Manager: the panel alone, as its own local `.vsix`.**

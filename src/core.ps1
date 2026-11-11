@@ -68,6 +68,15 @@ $script:ChatHandoverPollMs = 250
 $script:ChatHandoverOff = $false
 # tests: called with each run-state as it is written - the extension's part
 $script:ChatRunStateSeam = $null
+# A delete's ask to close a tab whose label another chat shares
+# (Request-ChatTabClose): data/close-request, answered in
+# close-ack/<ext host pid>.json. The wait is on a real clock.
+$script:ChatCloseRequestPath = Join-Path (Join-Path $script:ChatRoot 'data') 'close-request'
+$script:ChatCloseAckDir = Join-Path (Join-Path $script:ChatRoot 'data') 'close-ack'
+$script:ChatCloseAckSeconds = 4
+$script:ChatCloseAckPollMs = 250
+# tests: called with the close request as it is written - the extension's part
+$script:ChatCloseRequestSeam = $null
 # tests: stands in for Show-ChatFresh -GraceSeconds' sleep, given the
 # milliseconds; the seam can take the process away as a closed tab would
 $script:ChatGraceSleepSeam = $null

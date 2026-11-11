@@ -2421,6 +2421,10 @@ function Invoke-ChatqNativeStep {
         switch -CaseSensitive ($op) {
             'repair' {
                 Repair-ChatqInterrupted
+                # chatqd's start: the question hook as Invoke-ChatqWatchLoop
+                # puts it in place (gates::ask_hook_due asks for this step)
+                $hookSaid = Sync-ChatqAskHook
+                if ($hookSaid) { Write-ChatqWatchLog $hookSaid }
                 $W.CutCache = @{}
                 $res = [ordered]@{}
             }

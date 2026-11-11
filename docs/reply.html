@@ -242,6 +242,9 @@ button:disabled { opacity: .45; cursor: default; }
 }
 .shead::before { content: ""; flex: 0 0 auto; width: 6px; height: 6px; border: 1px solid currentColor; transform: rotate(45deg); }
 .shead::after { content: ""; flex: 1 1 auto; height: 1px; background: linear-gradient(to right, currentColor, transparent); opacity: .45; }
+/* a project's header (the open chats are grouped by project), the project
+   line's colour, as in Character view */
+.shead[data-proj] { color: var(--q-proj); }
 .row {
     display: flex; align-items: flex-start; gap: 9px; width: 100%; padding: 10px 14px 10px 10px; text-align: left;
     border: 0; border-left: 3px solid var(--c, var(--idle)); border-radius: 0; background: var(--row); color: var(--fg); font: inherit;
@@ -1499,21 +1502,56 @@ var ChatqBoard = (function () {
         if (s < 86400) return Math.floor(s / 3600) + 'h';
         return Math.floor(s / 86400) + 'd';
     }
-    // The overlay's order: waiting on you, working, cut off, the queue,
-    // open and idle, recent - an empty one left out - and, once asked for,
-    // the older chats of the PC's list (act list)
+    // What follows the projects: the queue, recent - an empty one left out -
+    // and, once asked for, the older chats of the PC's list (act list). The
+    // open and cut-off chats are no sections: projects() groups them.
     function sections(b, list) {
         b = b || {};
-        var open = b.open || [];
         return [
-            { key: 'waiting', head: 'Waiting on you', type: 'open', rows: open.filter(function (r) { return r.state === 'waiting'; }) },
-            { key: 'working', head: 'Working', type: 'open', rows: open.filter(function (r) { return r.state === 'busy'; }) },
-            { key: 'cut', head: 'Cut off', type: 'cut', rows: b.cut || [] },
             { key: 'queue', head: 'Queue', type: 'queue', rows: b.queue || [] },
-            { key: 'idle', head: 'Open, idle', type: 'open', rows: open.filter(function (r) { return r.state === 'idle'; }) },
             { key: 'recent', head: 'Recent', type: 'recent', rows: b.recent || [] },
             { key: 'older', head: 'Older chats', type: 'older', rows: olderRows(b, list) }
         ].filter(function (s) { return s.rows.length; });
+    }
+    // The open and cut-off chats by project, as the PC's Character view
+    // groups them: one group per folder (g; f, then '', when a row has none),
+    // headed by the project's name (the first row's f, else OTHER), its chats
+    // waiting, working, cut off, idle - each keeping the section it wore (sec:
+    // the state, for its badge and colour) - and the groups by their most
+    // urgent chat. Then the windows (b.windows) of a folder none of those
+    // chats is in, header only (only: true). q is the search: a group is
+    // shown for the chats that match, a window by its name. A group is
+    // { key, name, only, rows: [{ sec, type, row }] }.
+    var STATE_RANK = { waiting: 0, working: 1, cut: 2, idle: 3 };
+    function projects(b, q) {
+        b = b || {};
+        var chats = [], groups = [], byKey = {}, seen = {}, out = [];
+        (b.open || []).forEach(function (r) {
+            var sec = r.state === 'waiting' ? 'waiting' : r.state === 'busy' ? 'working' : r.state === 'idle' ? 'idle' : '';
+            if (sec) chats.push({ sec: sec, type: 'open', row: r });
+        });
+        (b.cut || []).forEach(function (r) { chats.push({ sec: 'cut', type: 'cut', row: r }); });
+        chats.forEach(function (c, i) { c.i = i; });
+        chats.sort(function (a, z) { return STATE_RANK[a.sec] - STATE_RANK[z.sec] || a.i - z.i; });
+        chats.forEach(function (c) {
+            var k = c.row.g || c.row.f || '';
+            if (!Object.prototype.hasOwnProperty.call(byKey, k)) { byKey[k] = { key: k, name: '', only: false, rows: [] }; groups.push(byKey[k]); }
+            byKey[k].rows.push(c);
+        });
+        groups.forEach(function (g) {
+            seen[g.key] = true;
+            g.name = (g.rows.filter(function (c) { return c.row.f; })[0] || { row: {} }).row.f || 'OTHER';
+            var keep = filterRows(g.rows.map(function (c) { return c.row; }), q);
+            g.rows = g.rows.filter(function (c) { return keep.indexOf(c.row) >= 0; });
+            if (g.rows.length) out.push(g);
+        });
+        var done = {};
+        (b.windows || []).forEach(function (w) {
+            if (!w || !w.g || seen[w.g] || done[w.g]) return;
+            done[w.g] = true;
+            if (filterRows([{ n: w.n }], q).length) out.push({ key: w.g, name: w.n || 'OTHER', only: true, rows: [] });
+        });
+        return out;
     }
     // The list's chats as rows, those the board shows already left out: the
     // 30 newest Claude and Codex chats, each with the mode a message would
@@ -1870,7 +1908,7 @@ var ChatqBoard = (function () {
         buildComposePayload: buildComposePayload, sealCompose: sealCompose, compose: compose, composeBytes: composeBytes,
         sameBytes: sameBytes, inflateRaw: inflateRaw, canInflate: canInflate, openDown: openDown, pollUrl: pollUrl, parseFeed: parseFeed,
         attachmentCheck: attachmentCheck, inlineSpans: inlineSpans, mdBlocks: mdBlocks, answerModel: answerModel, bubbleModel: bubbleModel, answerText: answerText,
-        hhmm: hhmm, ageText: ageText, sections: sections, olderRows: olderRows, rowSign: rowSign, rowView: rowView, whereText: whereText, norm: norm, filterRows: filterRows,
+        hhmm: hhmm, ageText: ageText, sections: sections, projects: projects, olderRows: olderRows, rowSign: rowSign, rowView: rowView, whereText: whereText, norm: norm, filterRows: filterRows,
         chatOfJob: chatOfJob, chatActions: chatActions, stateLine: stateLine, modeText: modeText, listenText: listenText,
         usageLines: usageLines, notices: notices, cardText: cardText, answerHead: answerHead, cutText: cutText, askView: askView,
         whyText: whyText, answerState: answerState, answerDraft: answerDraft, pickOption: pickOption, pickOther: pickOther, typeOther: typeOther,
@@ -2414,6 +2452,9 @@ var ChatqBoard = (function () {
         btn._disarm = setTimeout(function () {
             btn.removeAttribute('data-armed');
             if (!busy) btn.textContent = b.label;
+            // the big button's label is the box's to say: edited meanwhile,
+            // it is no longer Send again
+            if (btn.id === 'send') refresh();
         }, 3000);
         return false;
     }
@@ -2427,6 +2468,10 @@ var ChatqBoard = (function () {
         var text = b.act === 'prompt' || b.act === 'refuse' ? $('text').value.trim() : '';
         if (b.act === 'prompt' && (!text || P.counter(text).state === 'over')) return;
         if (b.act === 'refuse' && P.counter(text).state === 'over') return;
+        // Send again, the words that just went: sealed afresh, so the PC
+        // cannot tell it from a new prompt - a second tap, not one more
+        if (b.act === 'prompt' && sentText !== null && text === sentText &&
+            !armed({ confirm: 'Tap again to send it twice', label: 'Send again' }, btn)) return;
         // a permit names the request as the card showed it, or is not sent
         var h = b.act === 'permit' && f.permit ? f.permit.h : undefined;
         if (b.act === 'permit' && !h) return;
@@ -2810,6 +2855,13 @@ var ChatqBoard = (function () {
     function drawRows() {
         var list = $('bList'), q = String($('bSearch').value || '').trim(), any = false;
         list.textContent = '';
+        B.projects(bd.b, q).forEach(function (g) {
+            any = true;
+            var ph = el('p', 'shead', g.name);
+            ph.setAttribute('data-proj', g.key);
+            list.appendChild(ph);
+            g.rows.forEach(function (c) { list.appendChild(rowEl(c.sec, c.type, c.row, true)); });
+        });
         B.sections(bd.b, older.list).forEach(function (s) {
             var rows = B.filterRows(s.rows, q);
             if (!rows.length) return;
@@ -2856,14 +2908,15 @@ var ChatqBoard = (function () {
         b.setAttribute('data-sign', sign);
         return b;
     }
-    function rowEl(sec, type, r) {
+    // grouped: the row sits under its project's header, which says the project
+    function rowEl(sec, type, r, grouped) {
         var v = B.rowView(type, r, Date.now());
         var row = el('button', 'row');
         row.type = 'button';
         row.setAttribute('data-sec', sec);
         row.appendChild(badgeEl(B.rowSign(sec)));
         var m = el('span', 'rm');
-        if (v.proj) m.appendChild(el('span', 'rj', v.proj));
+        if (v.proj && !grouped) m.appendChild(el('span', 'rj', v.proj));
         var t = el('span', 'rt');
         if (v.dot) t.appendChild(el('span', 'nd'));
         t.appendChild(el('span', '', v.title));
@@ -3500,9 +3553,14 @@ var ChatqBoard = (function () {
         var ask = function () { askAlertRead(); };
         if (!f.full) return drawPanel(id, 'none', { ask: ask });
         drawPanel(id, 'loading');
+        // a needs input alert's question comes with the whole answer: until
+        // it is here, no prompt box to be taken for the place to answer it;
+        // what came (or did not) decides, askMode
+        if (f.event === 'needs input') $('app').setAttribute('data-asking', '');
         var since = f.at ? f.at - 120 : Math.floor(Date.now() / 1000) - 43200;
         waitDown(f.aid, since, 30000, ['reply'], 0, function () { return panel(id).gen === my && mode === 'alert'; }, function (res) {
             settlePanel(id, res, ask, 'none');
+            askMode('ask');
         });
     }
     // act read, bound to the alert: the PC sends the whole answer again
