@@ -1,5 +1,87 @@
 # Changelog
 
+## 1.3.0 — Demo mode driven headless, the game's dialogs and level-up
+
+- **Demo mode can be driven with no console.** Everything its consoles'
+  keys did now has a command, so a script or an AI agent can run a
+  whole take: `--pause`, `--resume`, `--restart` and `--stop` steer the
+  scene playing (Space, R and Q), `--pick <id>` answers a box's replies
+  as a click would, `--status` says which step it is on and which reply
+  ids it waits for, and `--trigger <key>` plays one of the console's
+  triggers (`--triggers` lists them). The director takes them from
+  `data/scene-ctl` and writes where it is to `data/scene-status.json`
+  ([Director.control](tools/overlay_scene.py),
+  [Director.write_status](tools/overlay_scene.py)). A scene started
+  from a script now keeps its log on that script's output
+  ([own_console](tools/overlay_scene.py)); before, it went to a console
+  nobody saw. The manual's description of the tray's Demo mode, which
+  still said it played the promo at once, now says it opens the trigger
+  list ([docs/overlay-demo.md](docs/overlay-demo.md) "Drive it
+  headless").
+
+- **Demo mode's small talk and day-capped lines are said.** The menu's
+  `u` (`--fire talk`) said nothing: small talk has no entry in a skin's
+  events, and the picker dropped any id without one
+  ([Engine::emit](native/overlay/src/pick.rs)). A forced `talk` is now a
+  P4 from the talk list. A demo's fire (`t` all chats idle, `s` welcome
+  back) also skips the event's day cap and leaves the count alone
+  ([Ev.demo](native/overlay/src/events.rs)); before, a day whose real
+  lines had used the cap made the key silent, and each take spent a real
+  line ([docs/overlay-demo.md](docs/overlay-demo.md) "Day limits").
+
+- **The reply timer is the game's timed dialog bar.** The countdown on
+  a timed choice (the limit ask's) was a thin gold line under the
+  replies with a count of seconds. It is now the bar measured off the
+  game's timed dialog: a red box 398 by 10 over the replies, its left at
+  theirs and 16 px above the first, a 1 px outline (`hudTimerEdge`
+  `#D24E54`), a 1 px dim ring (`hudTimerRing` `#A51E23`) and a 6 px fill
+  (`hudTimer` `#F0505E`) draining to the left, with no count
+  ([timer_bar](native/overlay/src/hud.rs), design/cp-ui/hud-spec.md
+  3.7). A chat's countdown on its Character view card takes the same
+  shape in its state colour. Status boxes keep their dim gold edge as a
+  token of their own, `hudBoxTrack`. Goldens `hud-say-choice-timer`,
+  `card-hud-cutoff` redrawn.
+
+- **The ASK card is the game's confirm dialog.** Hovering the ASK tag
+  showed an inbox card in gold, cyan and red. It is now the confirm
+  dialog measured off the game's save prompt: a red-edged dark frame
+  cut at its bottom right with a dim red strip down its left, no
+  title, a save disk (the quest banners' shard in red, laid flat) in a
+  picture box beside the words, the words
+  in one red and sentence case, the timer inside the frame's foot, and
+  under it two answers, `1 CONTINUE 2` and `2 LEAVE THEM`, edged in dull
+  cyan with their keys in cyan discs ([dialog_frame](native/overlay/src/card.rs),
+  design/cp-ui/hud-spec.md 3.8). The answers only show the keys: the
+  speech box's replies answer, as before. Golden `card-hud-ask`
+  redrawn.
+
+- **The reset timer's line is the game's EXP cyan.** The lit share of
+  the grey line over the gauge card's health bar was a bone white; the
+  canon EXP line is a pale cyan, now `hudExp` `#96EBDF`
+  (design/cp-ui/ref/hud/exp_bar.png). The unlit grey is unchanged.
+  Goldens `hud-gauges`, `-drop`, `-long`, `-status`, `-visor` redrawn.
+
+- **A reset levels the badge up.** When the reset the EXP line counts
+  to comes, the `CL` badge plays the game's level-up
+  ("Lv up-lv19.mp4"): a punch, a white chevron rising in three times in
+  place of the letters, then a cyan flood with the letters dark, a
+  second punch and a dark chevron; it holds, glowing, and fades back
+  after 7.6 s ([bars::level_at](native/overlay/src/bars.rs)). Only a
+  reset seen within 2 minutes plays it: one passed while the gauge was
+  gone or the PC slept does not ([bars::levels](native/overlay/src/bars.rs)).
+  New goldens `hud-gauges-levelup-chevron` and `-flood`.
+
+- **All chats idle can be said 6 times a day, 45 minutes apart.** It
+  was 3 a day with no gap, so a few short breaks used the day up, often
+  while you were away ([pace](native/overlay/src/pick.rs)).
+
+- **A finished quest row blinks at the game's pace.** Its bar and badge
+  blink on 270 ms of each 400 ms for 1.95 s, the box goes out over 4
+  frames and the green holds about 0.9 s with its dips, 2.9 s in all
+  (design/cp-ui/ref/quest/tracker-spec.md phases B-D). It was 2.5 times
+  faster, 1.25 s in all ([blink](native/overlay/src/card.rs)). Golden
+  `card-hud-tasks-done` redrawn.
+
 ## 1.2.8 — Character view's bar after a skin pick, console checks
 
 - **Character view's bar sits over the character again after a skin

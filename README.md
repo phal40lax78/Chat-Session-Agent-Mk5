@@ -629,7 +629,7 @@ waited 30 s with no answer, as **Continue** would; overlay.log says
 ask as it is, so a chat joining it, or the overlay starting again,
 starts it over. An ask with a chat a VS Code restart cut off in it is
 never answered this way. The native panel's Character view shows the
-wait as a gold timer under its picker. 0, the default, never answers.
+wait as a red timer bar over its picker. 0, the default, never answers.
 
 Left out, and why:
 - **a 529** - it has no reset to wait for. [Auto-continue](#auto-continue),
@@ -2311,14 +2311,17 @@ character go on moving while it is open. From the top:
   **Ctrl+Alt+Shift+D** beside them (the chord switches between them from
   anywhere);
 - **Skin**;
-- **Demo mode**, in a checkout only. In a console of its own it plays
-  the promo scene (`design/skippy/demo/promo.json`) on this overlay as
-  it is, with your real settings and skin (`tools/overlay_scene.py
-  --live`); Ctrl+C there ends it. From a console you can also make the
+- **Demo mode**, in a checkout only. A console of its own lists
+  triggers, a key each, on this overlay as it is, with your real
+  settings and skin (`tools/overlay_scene.py --menu --live`); **P**
+  there plays the promo scene (`design/skippy/demo/promo.json`), and Q
+  or Ctrl+C ends it. From a console you can also make the
   character say anything and trigger what normally comes by itself - a
   gauge moving, usage running out, a chat finishing - without waiting
   for it: `py tools/overlay_scene.py --lines on --usage claude 5h 91`,
-  then `--end`. The manual is [docs/overlay-demo.md](docs/overlay-demo.md);
+  then `--end`. Every key has a command too (`--trigger 3`, `--pause`,
+  `--pick yes`, `--status`), so a script or an agent can run a whole
+  take with no console. The manual is [docs/overlay-demo.md](docs/overlay-demo.md);
 - **Settings**: Theme, Recent chats and Cut-off chats, **Continue chats a VS Code crash cut off**, and the
   panel's opacity (100 to 50 %) and rows (3 to 20) in steps, and
   **HUD size** (50, 100, 150 or 200 %, default 150), which scales
@@ -2385,9 +2388,12 @@ keyboard while the pointer is on the card or on what brought it up. A
 gauge brings only its keys, ASK (F) among them: the gauge already says
 the rest. **The gauges** are at the top left: one
 card per provider with usage, Claude's first, stacked edge to edge. A
-card has a bar per window, its words at its right: a grey line on top
-lit by the share of the 5 h window gone (`resets at 10:53`; when the week
-resets first, it counts to the week's); a red bar with a cut corner,
+card has a bar per window, its words at its right: a grey line on top,
+the **EXP** line, lit cyan by the share of the 5 h window gone
+(`resets at 10:53`; when the week resets first, it counts to the
+week's). When that reset comes the badge levels up as the game's does: it punches, its
+letters give way to a rising white chevron, then it floods cyan with
+its letters dark, and after about 7 s fades back; a red bar with a cut corner,
 **health**, the 5 h window's share left (`5H 70%`); a row of 36 teal pips,
 **RAM**, the week's (`WEEK 19%`); and a gold line, **stamina**, per model
 week (`FABLE 60%`), none when there is none. When a share moves its bar
