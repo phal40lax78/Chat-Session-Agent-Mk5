@@ -1,5 +1,41 @@
 # Changelog
 
+## 1.2.8 — Character view's bar after a skin pick, console checks
+
+- **Character view's bar sits over the character again after a skin
+  pick, with no drag.** Entering Character view at a Character size other
+  than 150 (a Skin pick from Panel view enters it too) moved the stage's
+  remembered corner for the new scale, and a stage that would hang off the
+  screen was moved back onto it, both without moving its window
+  ([App::rescale](native/overlay/src/app.rs),
+  [App::stage_onto_screen](native/overlay/src/app/stage.rs)). The bar, the
+  box and the bar's hover area were placed from the remembered corner,
+  away from the character drawn (198 px at size 100, 96 dpi), until a
+  drag moved the window. Both now move the window with the corner
+  ([App::stage_to_pos](native/overlay/src/app/stage.rs)). The v1.1.6
+  re-placement on a new art rect never reached this: the bar was always
+  placed from fresh marks, as App::redrawn lays out after every redraw.
+  That re-placement (`bar_marks`) is removed.
+
+- **A Tier 1 drive for it: `tests/m9/hud-bar-skin.ps1`.** It builds the
+  overlay into `native/overlay/target/m9/` and picks skins from both views
+  on a hidden panel at Character size 100, checking that the stage's
+  window is where the panel says and the bar lies over it (TESTING.md
+  "Character view's bar after a skin pick").
+
+- **`tests/check.ps1` runs the checks from a console, headless.** One
+  command for each of the quick checks, the package, the self-test under
+  5.1 or 7, the bar drive and CI's Windows leg, stopping at the first that
+  fails, its exit code the verdict, so they run unattended. The Quick
+  checks, Self-test, Self-test (7) and CI tasks are gone with it; the
+  steps are listed in TESTING.md "Running the checks".
+
+- **The phone's message bubbles keep their outline round the tail.** In
+  reply.html the tail's sloped edge was drawn about 0.2 px thick, so a
+  bubble's tail corner looked cut off. The fill under the outline now has
+  its own polygon, its tail 1 px in across the slope
+  ([.msg](docs/reply.html)).
+
 ## 1.2.7 — A shared-label tab closed on delete
 
 - **Deleting a chat whose tab label another chat shares now closes its own
