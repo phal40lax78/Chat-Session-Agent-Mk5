@@ -3205,7 +3205,8 @@ asked for meanwhile, by a newer request, waits for the close. If a chat in the p
 ([what counts](#reloading-safely)), it warns instead: *A chat in this workspace
 is still working, and reloading now would cut it off*, with **Reload anyway**.
 `chatManager.folder` points it elsewhere if the script does not live in
-`~/Tools/Chat-Session-Agent-Mk5`; `chatManager.autoReload` skips the question
+`~/Tools/Chat-Session-Agent-Mk5` (a per-PC setting: Settings Sync leaves
+it out); `chatManager.autoReload` skips the question
 after a delete — never while a chat is working, and never after a queued run
 or a new chat, which have rules of their own. The old extension's
 `chatManagerReload.*` settings are still read where the new ones are unset,

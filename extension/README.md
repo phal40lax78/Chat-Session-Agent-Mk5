@@ -38,7 +38,8 @@ those commands and keeps them up to date.
 ## What it does on first start
 
 1. It puts the PowerShell scripts in `~/Tools/Chat-Session-Agent-Mk5`
-   (`chatManager.folder` moves it) - on Windows the native panel's exe too,
+   (`chatManager.folder` moves it; one that cannot be written is said, and
+   the default offered) - on Windows the native panel's exe too,
    under `bin/`, where an update removes the old version's. Everything the
    tool writes goes in `data/` there - nothing in AppData.
 2. It asks once before adding one line to your PowerShell profile, which loads
@@ -89,7 +90,7 @@ Then open a new terminal and type `chat` for the list of commands.
 
 | setting | |
 |---|---|
-| `chatManager.folder` | where the scripts and `data/` live; empty means `~/Tools/Chat-Session-Agent-Mk5` |
+| `chatManager.folder` | where the scripts and `data/` live; empty means `~/Tools/Chat-Session-Agent-Mk5`. A folder that cannot be written (a drive root, say) is said, with the default offered - **Use default** clears the setting - and the profile line meanwhile loads the default's copy; a status bar item stays until setup works |
 | `chatManager.showFresh` | after a queued run, show the chat in a fresh tab of its own instead of reloading the window (on) |
 | `chatManager.autoReloadAfterRun` | do that without asking when you are away and nothing else works (on) |
 | `chatManager.autoReload` | reload without asking after a delete (off); a deleted chat's tab closes either way |

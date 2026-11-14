@@ -1,5 +1,38 @@
 # Changelog
 
+## 1.3.2 — chatManager.folder is not synced to other PCs
+
+- **`chatManager.folder` stays on the PC it was set on.** It was synced
+  by Settings Sync like any other setting, so one PC's path (a git
+  checkout on `D:\`) reached another where no such folder was: setup
+  wrote nowhere, the other PC's `~\Tools\Chat-Session-Agent-Mk5` was
+  never updated, and its overlay ran its old version on - 0.12.1, before
+  Skin > Import pack... - through any reload or reinstall. The setting
+  is now `machine`-scoped, so Sync leaves it out and a workspace cannot
+  set it. A value already synced to another PC stays in that PC's user
+  settings until cleared there; 1.3.1's toast offers **Use default**.
+
+## 1.3.1 — A chatManager.folder that cannot be written is said, and the default offered
+
+- **An unwritable `chatManager.folder` no longer leaves the terminal
+  without its commands.** With the setting on a drive that refuses writes
+  (`D:\`), setup failed at the `data/` folder's `mkdir` before the profile
+  step, so `chatoverlay` and `chatq` never reached the PowerShell profile,
+  and the one toast did not name the setting. Setup now tries the folder
+  first ([usable](extension/setup.js)); a folder from the setting that
+  fails, or a copy that fails in it, asks whether to use the default
+  instead, naming the setting, the reason and the default's own copy where
+  there is one, with **Use default** (clears `chatManager.folder` where it
+  is set and runs setup again) and **Open setting**. Said on every
+  command-palette run, and from an automatic run once a window session,
+  since a note of it cannot be kept in the unwritable folder. When asked
+  for from the palette and the default holds a copy, the profile step
+  runs on that copy, so the line loads it until the setting can be
+  written. A warning item in the status bar stays until setup works and
+  runs Install terminal commands when clicked
+  ([updateSetupItem](extension/extension.js)); `copyFailed` names
+  `chatManager.folder` where the folder came from it.
+
 ## 1.3.0 — Demo mode driven headless, the game's dialogs and level-up
 
 - **Demo mode can be driven with no console.** Everything its consoles'
