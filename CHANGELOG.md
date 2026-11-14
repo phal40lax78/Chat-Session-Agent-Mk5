@@ -1,5 +1,32 @@
 # Changelog
 
+## 1.3.3 — Demo mode scenes drive the pointer
+
+- **A scene can hover a quest and click the keys under its card, with no
+  mouse.** A new scene line `drive <line>` runs one line of the overlay's
+  test drive as the pointer's: `hover <key>` brings the quest's card up
+  with its objective tracker, `key key:delete` clicks DELETE (QUEST
+  COMPLETE), `key key:archive` clicks ARCHIVE (QUEST FAILED), `hover -`
+  lets go. In `tools/overlay_scene.py` a step takes `"drive"` (a line or a
+  list, sent after its `fire`) and a one-shot takes `--drive LINE`
+  (repeatable); `--check` wants each non-empty, and `--from` replays none
+  of them. The faked pointer wins over the real mouse until `hover -` or
+  the scene's end ([App.cursor](native/overlay/src/app/pointer.rs)), which
+  gives the mouse back.
+- **A made-up row (a `demo:` key) stays off the host.** While a scene is on,
+  a delete, archive or any other verb naming one is logged and not written
+  to `overlay-cmd`, and the row sent away is also taken out by a `remove`
+  patch so it does not come back. This replaces "Clicks are real" in
+  [docs/overlay-demo.md](docs/overlay-demo.md): a click on a made-up row
+  could never act on a real chat, but the host answered it with a refusal.
+  A made-up row needs a non-empty `sessionId` for ARCHIVE to be on; a
+  scene's chats can now set `sessionId` and `cwd`.
+- **A made-up quest's card shows objectives and messages.** Its card's
+  model is the row's own `card` field (`Todos`, `Turns`), set by the
+  scene, since the host has no transcript to read for it; a later patch
+  with a new `card` moves the tracker
+  ([App.card_tick](native/overlay/src/app.rs)).
+
 ## 1.3.2 — chatManager.folder is not synced to other PCs
 
 - **`chatManager.folder` stays on the PC it was set on.** It was synced
